@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-LightRAG is not the right retrieval system for Kenjutsu. While it is an impressive graph-enhanced RAG framework for natural language document retrieval (30K+ GitHub stars, EMNLP 2025 paper, 6,000x fewer tokens per query than Microsoft GraphRAG), its core design — LLM-based entity extraction to build knowledge graphs from prose — is fundamentally mismatched with code retrieval needs. Code requires deterministic AST-based structural analysis, not probabilistic entity extraction. Research on graph-RAG for codebases (Shereshevsky 2026, AST-derived DKB approach) confirms that AST-derived graphs significantly outperform LLM-extracted knowledge graphs for code retrieval tasks.
+LightRAG is not the right retrieval system for Kenjutsu. While it is an impressive graph-enhanced RAG framework for natural language document retrieval (30K+ GitHub stars, EMNLP 2025 paper, 6,000x fewer tokens per query than Microsoft GraphRAG), its core design — LLM-based entity extraction to build knowledge graphs from prose — is fundamentally mismatched with code retrieval needs. Code requires deterministic AST-based structural analysis, not probabilistic entity extraction. Research on graph-RAG for codebases (Chinthareddy 2026, AST-derived DKB approach) confirms that AST-derived graphs significantly outperform LLM-extracted knowledge graphs for code retrieval tasks.
 
 **Recommendation: Build a custom retrieval pipeline using LlamaIndex as the orchestration layer.** LlamaIndex provides the indexing primitives, vector store integrations, and query routing we need while allowing us to implement code-specific components (tree-sitter AST parsing, function-level chunking, Voyage-code-3 embeddings) that no prebuilt system offers out of the box. This aligns with the hybrid context pipeline architecture already proposed in the DEM-108 research.
 
@@ -39,16 +39,17 @@ LightRAG (HKUDS, University of Hong Kong) is a graph-enhanced retrieval-augmente
 4. Each node and edge stores a structured textual profile
 5. Chunks are embedded and stored in a vector database
 
-**Query phase — five retrieval modes:**
-- **Naive:** Vector-only similarity search (baseline)
-- **Local:** Graph traversal for direct entity connections
-- **Global:** Cross-document relationship discovery via graph
-- **Hybrid:** Combined local + global
-- **Mixed:** Hybrid with cross-encoder reranking
+**Query phase — six retrieval modes:**
+- **naive:** Vector-only similarity search (baseline)
+- **local:** Graph traversal for direct entity connections
+- **global:** Cross-document relationship discovery via graph
+- **hybrid:** Combined local + global
+- **mix:** Combines knowledge graph extraction with vector retrieval, applying both graph-based and semantic search strategies
+- **bypass:** Passes the query directly to the LLM without retrieval
 
 **Storage backends (pluggable):**
 - KV: JSON, PostgreSQL, Redis, MongoDB, OpenSearch
-- Vector: NanoVectorDB, pgvector, Milvus, Chroma, Faiss, Qdrant, MongoDB
+- Vector: NanoVectorDB, pgvector, Milvus, Chroma, Faiss, Qdrant, MongoDB, OpenSearch
 - Graph: NetworkX, Neo4j, PostgreSQL (AGE), OpenSearch
 
 ### Strengths
@@ -57,7 +58,7 @@ LightRAG (HKUDS, University of Hong Kong) is a graph-enhanced retrieval-augmente
 2. **Incremental updates.** New documents are unioned into the existing graph without full rebuild (~50% faster update cycles vs. GraphRAG).
 3. **Flexible storage backends.** Swappable KV, vector, and graph stores prevent vendor lock-in.
 4. **Active community.** 30K+ stars, regular releases, Docker deployment, REST API server mode.
-5. **Multiple query modes.** The naive→local→global→hybrid progression lets users trade off cost vs. depth.
+5. **Multiple query modes.** Six modes (naive, local, global, hybrid, mix, bypass) let users trade off cost vs. depth.
 
 ### Weaknesses
 
@@ -150,7 +151,7 @@ LightRAG addresses only the last category (semantic search), and even there, its
 | **Latest version** | v0.5.5 (March 2026) |
 | **Maintainer** | Topoteretes |
 
-**Architecture:** Memory-first knowledge engine combining vector search, graph databases, and cognitive science approaches. Modular pipeline: ingestion (30+ data sources) → enrichment (embeddings + graph "memify") → retrieval (graph traversal + vector similarity + time filtering). Key abstraction: progressive learning — the system accumulates knowledge incrementally without full reprocessing.
+**Architecture:** Memory-first knowledge engine combining vector search, graph databases, and cognitive science approaches. Modular pipeline: ingestion (30+ data sources) → enrichment (embeddings + graph "memify") → retrieval (graph traversal + vector similarity + time filtering). Cognee's documentation describes incremental knowledge accumulation without full reprocessing, though the implementation details of this capability are not fully documented in the current codebase.
 
 **Strengths:**
 - Memory-first design ideal for agentic systems
@@ -158,7 +159,7 @@ LightRAG addresses only the last category (semantic search), and even there, its
 - Multi-backend support (NetworkX for dev, Neo4j/FalkorDB for prod)
 - Tenant isolation and OTEL observability
 - Apache-2.0 license
-- Progressive/incremental learning
+- Incremental knowledge accumulation (per documentation; implementation maturity unclear)
 
 **Weaknesses:**
 - Pre-v1.0 (v0.5.5) — API stability not guaranteed
@@ -167,7 +168,7 @@ LightRAG addresses only the last category (semantic search), and even there, its
 - Smaller contributor base relative to maturity expectations
 - No code-specific indexing or retrieval features
 
-**Fit for Kenjutsu: Moderate.** Cognee's progressive learning and agentic memory model are conceptually interesting for a code review tool that should learn from feedback over time. However, it's immature (pre-v1.0) and, like all systems evaluated, lacks code-specific features. Using Cognee would mean building all code indexing on top of a foundation that may change significantly before v1.0.
+**Fit for Kenjutsu: Moderate.** Cognee's incremental knowledge accumulation and agentic memory model are conceptually interesting for a code review tool that should learn from feedback over time. However, it's immature (pre-v1.0) and, like all systems evaluated, lacks code-specific features. Using Cognee would mean building all code indexing on top of a foundation that may change significantly before v1.0.
 
 ### 2.4 LlamaIndex
 
@@ -236,8 +237,8 @@ LightRAG addresses only the last category (semantic search), and even there, its
 | **Code-specific features** | None | None | None | None | None (extensible) | None (extensible) | Full control |
 | **AST/tree-sitter support** | No | No | No | No | Via custom NodeParser | Via custom component | Native |
 | **Graph capabilities** | Core feature | Core feature | Built-in extraction | Core feature | Supported index type | Via custom component | Build as needed |
-| **Incremental updates** | Yes (graph union) | No (full rebuild) | Yes | Yes (progressive) | Yes | Yes | Build as needed |
-| **Hybrid search (BM25+vector)** | Yes (mixed mode) | No | Yes (RRF) | Yes | Yes | Yes | Build as needed |
+| **Incremental updates** | Yes (graph union) | No (full rebuild) | Yes | Yes (incremental) | Yes | Yes | Build as needed |
+| **Hybrid search (BM25+vector)** | Yes (`mix` mode) | No | Yes (RRF) | Yes | Yes | Yes | Build as needed |
 | **Storage flexibility** | Excellent (12+ backends) | Limited | PostgreSQL-centric | Good (multi-backend) | Excellent (50+ stores) | Good | Full control |
 | **Embedding flexibility** | Limited (model lock-in) | Flexible | Flexible | Flexible | Excellent | Excellent | Full control |
 | **Query cost** | Very low (~100 tokens) | Very high (~610K tokens) | Low-medium | Low-medium | Depends on pipeline | Depends on pipeline | Depends on design |
@@ -250,7 +251,7 @@ LightRAG addresses only the last category (semantic search), and even there, its
 
 ## 4. Critical Finding: LLM Entity Extraction vs. AST Parsing for Code
 
-The most important technical finding in this evaluation is that **all graph-based RAG systems (LightRAG, GraphRAG, R2R, Cognee) use LLM-based entity extraction**, which is designed for natural language documents. Recent research (Shereshevsky 2026, AST-derived DKB) demonstrates that for code retrieval:
+The most important technical finding in this evaluation is that **all graph-based RAG systems (LightRAG, GraphRAG, R2R, Cognee) use LLM-based entity extraction**, which is designed for natural language documents. Recent research (Chinthareddy 2026, AST-derived DKB) demonstrates that for code retrieval:
 
 1. **AST-derived graphs outperform LLM-extracted graphs** on code retrieval benchmarks (SWE-bench, RepoEval). Deterministic structural analysis captures function dependencies, call graphs, and type hierarchies that LLM extraction misses or hallucinates.
 
