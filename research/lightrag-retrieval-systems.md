@@ -1,6 +1,6 @@
 # Retrieval System Evaluation: LightRAG and Alternatives for Kenjutsu
 
-- **Status:** review
+- **Status:** complete
 - **Author:** Chief Architect
 - **Date:** 2026-03-23
 - **Issue:** DEM-114
