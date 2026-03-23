@@ -1,0 +1,5 @@
+.paperclip/
+node_modules/
+dist/
+.pixi/
+.env
