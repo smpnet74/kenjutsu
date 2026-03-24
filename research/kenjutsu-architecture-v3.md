@@ -10,7 +10,9 @@
 
 ## 1. Product Overview
 
-Kenjutsu is a SaaS AI code review tool that reviews GitHub pull requests with codebase-aware context. It targets the full market — from individual developers to Fortune 500 healthcare and finance companies — via tier-gated pricing.
+Kenjutsu is a SaaS AI code review tool that reviews GitHub pull requests with codebase-aware context.
+
+**Initial target:** Mid-size engineering teams (10-50 devs), private GitHub Cloud repos, TypeScript/JavaScript and Python codebases. Developer-led adoption via free tier, expanding to enterprise as governance features mature.
 
 **Core value proposition:** High-signal, governance-ready code review. Precision over recall — only speak when it matters.
 
@@ -26,7 +28,7 @@ Kenjutsu is a SaaS AI code review tool that reviews GitHub pull requests with co
 - Not a fork of PR-Agent (AGPL blocks commercial use)
 - Not a linter (the LLM is one signal source among several)
 
-**First-class languages at launch:** Python, TypeScript/JavaScript, Go, Java, Rust.
+**First-class languages at launch:** TypeScript/JavaScript and Python. Go, Java, and Rust get basic tree-sitter AST parsing but no deterministic rules or import resolution until the wedge is validated.
 
 **Known blind spots:** Dynamic dispatch (Python monkey-patching, JS dynamic imports, reflection, runtime-generated code) produces incomplete call/import graphs. The system is honest about this — findings from structural analysis carry a `graph_completeness` flag per language.
 
@@ -151,8 +153,54 @@ Embedding pipeline, reranking, and Layer 3 agentic search added to the existing 
 | **GitHub API** | PyGithub or httpx | PR fetching, review publishing |
 | **Prompt templates** | Jinja2 | Conditional rendering, per-language variations |
 | **Structured output** | Pydantic | Type validation, JSON schema for LLM output |
+| **Test infrastructure** | Testcontainers | Tests declare their own infrastructure as code — same behavior local and CI |
 
-### 3.5 DBOS Abstraction Boundary
+### 3.5 Testing Strategy
+
+Tests bring their own infrastructure via Testcontainers. No manual database setup, no "works on my machine," no divergence between local and CI.
+
+**Test layers:**
+
+| Layer | Directory | Infrastructure | Speed |
+|-------|-----------|---------------|-------|
+| Unit tests | `tests/unit/` | None — pure logic, no I/O | < 1 second |
+| Integration tests | `tests/integration/` | Testcontainers (PostgreSQL, SurrealDB Phase 3+) | 10-30 seconds |
+| End-to-end tests | `tests/e2e/` (future) | Testcontainers + GitHub API mock | 30-60 seconds |
+
+**Fixture pattern:**
+
+```python
+# tests/conftest.py
+import pytest
+from testcontainers.postgres import PostgresContainer
+
+@pytest.fixture(scope="session")
+def postgres_url():
+    """Spin up a fresh PostgreSQL for the test session."""
+    with PostgresContainer("postgres:16") as pg:
+        yield pg.get_connection_url()
+
+# Phase 3 addition — just add another fixture
+from testcontainers.core.container import DockerContainer
+from testcontainers.core.waiting_utils import wait_for_logs
+
+@pytest.fixture(scope="session")
+def surrealdb_url():
+    """Spin up SurrealDB for graph integration tests."""
+    with DockerContainer("surrealdb/surrealdb:v2") \
+        .with_exposed_ports(8000) \
+        .with_command("start --user root --pass root") as surreal:
+        wait_for_logs(surreal, "Started web server")
+        host = surreal.get_container_host_ip()
+        port = surreal.get_exposed_port(8000)
+        yield f"ws://{host}:{port}"
+```
+
+**CI implications:** GitHub Actions `ubuntu-latest` has Docker available, so Testcontainers works natively. The CI `services:` block for PostgreSQL is replaced by Testcontainers — tests own their infrastructure, CI just runs pytest. For non-containerized services (GitHub API, LLM providers), CI integration tests use contract fixtures or recorded HTTP mocks — never live API calls. Live smoke tests run in staging only (see Issue 1.11).
+
+**Why this matters for Kenjutsu:** As the architecture evolves (PostgreSQL Phase 1 → add SurrealDB Phase 3 → add mock APIs Phase 4), the test infrastructure grows by adding fixtures, not rewriting CI workflows.
+
+### 3.6 DBOS Abstraction Boundary
 
 Business logic is plain async functions. The orchestration layer adds durability. This protects against DBOS lock-in.
 
@@ -274,7 +322,7 @@ Line numbers are NOT part of the fingerprint — code can shift lines without ch
 - Parse into structured patches
 - tree-sitter AST: extend hunks to enclosing function/class
 - Token budget management, multi-pass for large PRs
-- Deletion omission
+- Deletion summarization: deletion-only hunks are summarized (not omitted) — removed checks, guards, or validation code can be exactly where the bug is
 
 **Step 4 — Structural Context** (1-5s)
 - All from bare mirror + tree-sitter, no external database:
@@ -295,7 +343,7 @@ Line numbers are NOT part of the fingerprint — code can shift lines without ch
   - Removed function parameters still passed by callers
   - Changed return types
   - Removed exports still imported elsewhere
-  - `origin: graph`, `confidence: high`
+  - `origin: structural`, `confidence: high`
   - **Scope limitation:** These checks use tree-sitter AST analysis, NOT a type checker. They catch syntactic structural breakage for the 5 first-class languages. Deep type inference, generics resolution, and runtime behavior are out of scope.
 - Predictive warnings:
   - Co-change: "File B usually changes with A (85% probability) — was this intentional?"
@@ -432,7 +480,7 @@ Only built if Bet A is proven and Layer 1 quality plateaus.
 
 | Dimension | Values | Description |
 |-----------|--------|-------------|
-| **origin** | `deterministic`, `graph`, `llm`, `predictive` | How the finding was produced |
+| **origin** | `deterministic`, `structural`, `llm`, `predictive` | How the finding was produced. `structural` covers tree-sitter analysis (Phase 2) AND graph queries (Phase 3+) — one stable enum value across all phases. |
 | **confidence** | `verified`, `high`, `medium`, `low` | How certain we are |
 | **severity** | `critical`, `warning`, `suggestion` | How important to fix (one canonical enum) |
 | **category** | `bug`, `security`, `breaking-change`, `performance`, `missing-test`, `co-change`, `stale-doc`, `style` | What kind |
@@ -715,7 +763,7 @@ Provides: tree-sitter parsing, git log mining, diff generation, rename detection
 
 ### 15.2 Large Monorepo Handling
 
-- Sparse checkout for initial clone > 1GB
+- Partial clone with blob filter (`git clone --bare --filter=blob:limit=1m`) for repos > 1GB — fetch blobs on demand during parsing
 - `git log` depth limited to 6 months or 10K commits
 - Incremental analysis critical — never re-parse full repo per PR
 - Storage monitoring with per-repo alerts
@@ -753,7 +801,8 @@ These are viability thresholds. If exceeded, the design needs simplification.
 | SurrealDB unavailable (Phase 3+) | Fall back to tree-sitter-from-mirror (Phase 1-2 path). | SurrealDB recovery restores graph context. |
 | Publishing fails | Retry publishing only. LLM results persisted. | No re-computation. |
 | New commit mid-review | Cancel, debounce, re-enqueue. | Automatic. |
-| Mirror fetch fails | Review proceeds with last-fetched mirror state. Flag `context_freshness: stale`. | Next fetch updates mirror. |
+| Mirror fetch fails, head_sha present locally | Review proceeds — mirror has the code needed. | Next fetch updates mirror. |
+| Mirror fetch fails, head_sha NOT present locally | Abort structural analysis. Degrade to diff-only LLM review with `context_freshness: degraded`. Never publish structural findings from stale state. | Next fetch updates mirror, next review gets full context. |
 | Indexing fails (Phase 3+) | Previous complete version stays active. Partial run discarded. | Next merge triggers fresh run. |
 
 ---
@@ -939,13 +988,53 @@ Mine git history (patterns only, no code):
 | Review latency (P95) | < 60s | Pipeline instrumentation |
 | Uninstall rate (first week) | < 20% | Tenant lifecycle |
 
-## Appendix E: Open Questions (Resolve During Phase 1)
+## Appendix E: Evaluation Contract
 
-These are not blockers for the spec but must be answered before or during implementation:
+This contract defines how Bet A is measured. It must be frozen before Phase 2 evaluation begins.
+
+### What counts as "accepted"
+
+| Signal | Classification | Source |
+|--------|---------------|--------|
+| Author resolves the review comment thread | **Accepted** | GitHub API — comment thread `isResolved` |
+| Author changes code in the area the finding identified | **Accepted** | Diff analysis between review sha and next commit |
+| Author dismisses or reacts negatively | **Rejected** | `/kenjutsu reject` slash command or dismiss action |
+| No response within 48 hours | **Ignored** | Timer-based, excluded from accepted-finding rate calculation |
+
+### What counts as a false positive
+
+A finding is a false positive if:
+- The finding is factually wrong (the code doesn't have the issue described)
+- The finding is correct but not actionable (team convention allows it)
+- The finding is a duplicate of another finding in the same review
+
+A finding is NOT a false positive if:
+- The author disagrees but the finding is technically correct
+- The finding is low severity and the author chooses not to fix it
+
+### Experiment protocol for Bet A
+
+- **One primary model** (Claude Sonnet) — no multi-provider routing during experiment
+- **One fixed prompt family** — no prompt changes during experiment runs
+- **One benchmark corpus** (50+ PRs, TypeScript/JavaScript + Python)
+- **Two variants:** diff-only baseline vs structural-context variant
+- **Blind comparison:** same corpus, same model, same prompt, only context differs
+- **Metric:** accepted-finding rate lift, FP rate per confidence tier, latency delta
+- **Freeze period:** no prompt or model changes during the evaluation window
+
+### Feedback collection (Phase 2, not Phase 5)
+
+Lightweight feedback signals must be collectible before Bet A evaluation:
+- `/kenjutsu accept` — explicit positive signal on a finding
+- `/kenjutsu reject` — explicit negative signal
+- GitHub comment thread resolution — implicit accept
+- These signals are stored per finding fingerprint for FP rate tracking
+
+## Appendix F: Open Questions (Resolve During Phase 1)
 
 1. **Fingerprint normalization** — exact canonicalization rules for LLM output to ensure stable fingerprints across reruns
-2. **Evaluation labeling** — what counts as "accepted"? GitHub "resolved" is not ground truth. Need explicit signal collection UX.
-3. **Rename/move handling** — how fingerprints, structural context, and diff mapping handle file renames
-4. **Secret detection implementation** — regex, entropy, external scanner, or combination?
-5. **Co-change probability threshold** — what probability triggers a warning? Needs calibration on real repos.
-6. **First paying customer identity** — who are we optimizing the first release for?
+2. **Rename/move handling** — how fingerprints, structural context, and diff mapping handle file renames
+3. **Secret detection implementation** — regex, entropy, external scanner, or combination?
+4. **Co-change probability threshold** — what probability triggers a warning? Needs calibration on real repos.
+5. ~~**Evaluation labeling**~~ — RESOLVED: see Appendix E Evaluation Contract
+6. ~~**First paying customer identity**~~ — RESOLVED: mid-size teams (10-50 devs), private GitHub Cloud, TypeScript/JavaScript + Python
