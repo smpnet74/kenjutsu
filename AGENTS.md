@@ -28,7 +28,7 @@ These rules apply to every contributor: human developers, AI coding agents, and 
 
 **Type checking:** pyright in standard mode. Zero errors.
 
-**Testing:** pytest. Unit tests in `tests/unit/` (no I/O, no network). Integration tests in `tests/integration/` (use Testcontainers for PostgreSQL, SurrealDB).
+**Testing:** pytest. See Testing Discipline section below.
 
 **Commits:** Conventional commits (`feat:`, `fix:`, `docs:`, `chore:`, `refactor:`, `test:`, `ci:`).
 
@@ -53,6 +53,62 @@ New code must go in the matching directory — CodeRabbit applies path-specific 
 | `kenjutsu/config/` | .kenjutsu.yaml parsing, defaults |
 | `kenjutsu/db/` | PostgreSQL schema, Alembic migrations |
 | `kenjutsu/mirror/` | Bare mirror management |
+
+## Testing Discipline
+
+These rules are non-negotiable. Every PR must follow them.
+
+### The Rule
+
+**Every PR that changes behavior must include tests that verify the changed behavior.** This is not optional. If you change code, you test the change. If you fix a bug, the test reproduces the bug before the fix and passes after. If you add a feature, the test verifies the feature works.
+
+### Test Layers
+
+| Layer | Location | Infrastructure | What belongs here |
+|-------|----------|---------------|-------------------|
+| **Unit** | `tests/unit/` | None — pure logic, no I/O, no network | Business logic, models, parsing, fingerprinting, token budgeting, config resolution |
+| **Integration** | `tests/integration/` | Testcontainers (PostgreSQL, SurrealDB Phase 3+) | DB operations, webhook handling, pipeline steps with real DB, publishing idempotency |
+| **E2E** | `tests/e2e/` (future) | Testcontainers + GitHub API mock | Full review cycle: webhook → pipeline → published review |
+
+### What Must Be Tested
+
+**Trust mechanics are safety-critical.** Every trust mechanic from the Product Invariants section must have integration tests:
+
+- Sha guard: stale sha detected → review aborted, not published
+- Idempotent publishing: same review published twice → no duplicate comments
+- Finding fingerprints: same finding produces same fingerprint across reruns
+- Supersession: new sha → old review marked superseded
+- Debounce: rapid pushes → single review enqueued
+- Sensitive redaction: secrets never appear in published comments
+- Tenant isolation: queries never return cross-tenant data
+
+**Boundary contracts need integration tests.** Every external boundary (GitHub API, PostgreSQL, SurrealDB Phase 3+, LLM providers) needs contract tests that verify the integration works correctly with a real service via Testcontainers.
+
+**Deterministic analysis needs regression tests.** Every AST-grep pattern and structural check needs a test with a code sample that triggers it and a test with code that doesn't.
+
+### What Does NOT Need Tests
+
+- Config files (`.kenjutsu.yaml`, `pyproject.toml`) — validated by the parser, not by dedicated tests
+- Prompt template text — the LLM output is nondeterministic; test the parsing and validation, not the generation
+- CI workflow YAML — validated by actionlint, not pytest
+
+### Regression Rule
+
+**Bug fix PRs must include a test that fails before the fix and passes after.** This test lives permanently in the test suite and prevents the bug from returning. No exceptions.
+
+### Coverage
+
+Coverage is measured per-PR on changed files, not as a global percentage. The goal is not a number — it's confidence that changed behavior is verified. CI will enforce a minimum threshold on changed files once the test suite reaches critical mass (Issue 1.1b).
+
+### Evaluation Harness (Phase 2+)
+
+The evaluation harness measures review quality, not code correctness. It is a regression suite for the product's core promise (precision).
+
+- **Baseline:** diff-only LLM review scores (established in Phase 1)
+- **Gate:** review quality scores (accepted-finding rate, FP rate per confidence tier) must not regress between releases
+- **Enforcement:** automated comparison against baseline in CI (Phase 2 Issue 2.8)
+
+Quality regression is as serious as code regression. If a prompt change drops the accepted-finding rate, it doesn't ship.
 
 ## CI
 
