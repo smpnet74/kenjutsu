@@ -1,175 +1,194 @@
-# DEM-121: Evaluation Framework for Non-LLM Models
+# Embedding Model Evaluation Framework
+
+- **Status:** active
+- **Author:** Research Specialist
+- **Date:** 2026-03-24
+- **Issue:** DEM-121
+- **Parent:** DEM-121
+
+---
 
 ## Purpose
 
-Standardized evaluation criteria for all embedding and reranking models assessed under DEM-121. Every model evaluation MUST follow this template to enable direct comparison.
+This framework standardizes the evaluation of embedding models for Kenjutsu's code review pipeline. Every model evaluation follows the same template and criteria to enable direct comparison.
+
+## Evaluation Dimensions
+
+### 1. Model Identity
+
+- Full model name and version
+- Organization / provider
+- Release date
+- Architecture (encoder-only, decoder-based, etc.)
+- Parameter count
+- License
+
+### 2. Technical Specifications
+
+| Property | Value |
+|---|---|
+| Context window | tokens |
+| Embedding dimensions | default / flexible |
+| Matryoshka support | Yes/No (which dimensions) |
+| Binary quantization | Native / Post-hoc / None |
+| int8 quantization | Yes/No |
+
+### 3. Benchmark Performance
+
+**General benchmarks:**
+- MTEB overall score
+- MTEB retrieval score (nDCG@10)
+
+**Code-specific benchmarks:**
+- CodeSearchNet MRR@10 (per-language breakdown)
+- CoIR average score
+- Other code retrieval benchmarks (AdvTest, CosQA+, etc.)
+
+**Benchmark reliability notes:**
+- Flag CoSQA scores as unreliable (~51% mislabeled)
+- Note self-reported vs. independently verified scores
+- Distinguish zero-shot vs. fine-tuned performance
+
+### 4. Code Retrieval Capabilities
+
+- NL → code retrieval quality
+- Code → code retrieval quality
+- Cross-language code retrieval
+- Programming languages supported (count and list)
+
+### 5. Deployment & Cost
+
+| Property | Value |
+|---|---|
+| API pricing | $/1M tokens |
+| Self-hosted | Yes/No (open weights?) |
+| GPU requirements | (for self-hosted) |
+| Latency (P50/P99) | ms |
+| Throughput | tokens/hour |
+
+### 6. Kenjutsu Fit Assessment
+
+Rate each on a 1-5 scale:
+
+- **Code retrieval quality** — How well does it retrieve relevant code?
+- **Context window adequacy** — Can it handle function-level and file-level chunks?
+- **Deployment flexibility** — API + self-hosted options?
+- **Cost efficiency** — Price per 1M tokens at scale?
+- **Dimension flexibility** — Matryoshka/quantization for storage optimization?
+- **Ecosystem maturity** — Community, documentation, integrations?
+
+### 7. Verdict
+
+- **Recommendation:** Strong candidate / Viable alternative / Not recommended / Baseline only
+- **Best use case within Kenjutsu:** (specific pipeline stage)
+- **Key risk:** (primary concern)
+
+---
+
+## Benchmark Reliability Guide
+
+| Benchmark | Reliability | Notes |
+|---|---|---|
+| MTEB (English) | High | Broad coverage, community-maintained |
+| CoIR | High | Code-specific, multi-task, recent |
+| CodeSearchNet | Medium | Well-established but dated; MRR variance across languages |
+| CoSQA | **Low** | ~51% mislabeled pairs (Bing queries vs CodeSearchNet code) |
+| CosQA+ | Medium-High | 412K pairs, 1K human-verified; replacement for CoSQA |
+| AdvTest | Medium | Tests adversarial robustness of code retrieval |
+| Self-reported vendor benchmarks | Low-Medium | Often cherry-picked; verify methodology |
 
 ---
 
 ## Embedding Model Evaluation Template
 
-Each embedding model gets its own file in `research/dem-121/embedding-models/` named `{model-name}.md`.
-
-### Required Sections
-
 ```markdown
-# {Model Name}
+# {Model Name} — Embedding Model Evaluation
 
-## Overview
-- **Provider:** {company/organization}
-- **Model ID:** {exact model identifier for API/download}
-- **Architecture:** {transformer variant, parameter count}
-- **Training approach:** {contrastive, MLM, instruction-tuned, etc.}
-- **License:** {MIT, Apache 2.0, proprietary API, etc.}
-- **Release date:** {YYYY-MM or approximate}
-- **Active maintenance:** {yes/no, last update date}
-
-## Specifications
-- **Embedding dimensions:** {default and available options}
-- **Max context window:** {tokens}
-- **Supported languages:** {programming and natural languages}
-- **Matryoshka support:** {yes/no — can dimensions be truncated without re-training?}
-- **Binary/scalar quantization support:** {yes/no, quality impact if known}
-
-## Benchmark Performance
-- **MTEB overall score:** {if available}
-- **MTEB retrieval score:** {specifically retrieval tasks}
-- **Code-specific benchmarks:** {CoSQA, CodeSearchNet, SWE-bench retrieval, or similar}
-- **Comparison to Voyage-code-3:** {relative performance delta if measurable}
-
-Note: Flag benchmark reliability issues (e.g., CoSQA has ~51% incorrect labels).
-
-## Code Retrieval Suitability
-- **Code understanding depth:** {token-level, statement-level, function-level, semantic}
-- **Cross-language retrieval:** {can it match Python query to Java implementation?}
-- **Natural language → code:** {how well does it handle NL queries against code?}
-- **Code → code similarity:** {clone detection, similar function finding}
-- **AST/structure awareness:** {does it understand code structure or treat as text?}
-
-## Operational Characteristics
-- **Deployment:** {API-only, self-hosted, both}
-- **Latency:** {P50/P99 per request if available, batch throughput}
-- **Cost:** {per 1M tokens or per request}
-- **Batch API support:** {yes/no}
-- **Rate limits:** {if API-based}
-- **GPU requirements:** {if self-hosted — VRAM, recommended hardware}
-
-## Strengths
-- {bullet points}
-
-## Weaknesses
-- {bullet points}
-
-## Verdict for Kenjutsu
-- **Recommendation:** {STRONG YES / YES / MAYBE / NO / STRONG NO}
-- **Best role:** {primary embedding, secondary/specialized, not suitable}
-- **Rationale:** {1-2 sentences}
-```
+- **Evaluator:** Research Specialist
+- **Date:** YYYY-MM-DD
+- **Issue:** DEM-122
 
 ---
 
-## Reranking Model Evaluation Template
+## 1. Model Identity
 
-Each reranking model gets its own file in `research/dem-121/reranking-models/` named `{model-name}.md`.
+| Property | Value |
+|---|---|
+| Full name | |
+| Organization | |
+| Release date | |
+| Architecture | |
+| Parameters | |
+| License | |
 
-### Required Sections
+## 2. Technical Specifications
 
-```markdown
-# {Model Name}
+| Property | Value |
+|---|---|
+| Context window | |
+| Default dimensions | |
+| Flexible dimensions | |
+| Matryoshka support | |
+| Binary quantization | |
+| int8 quantization | |
 
-## Overview
-- **Provider:** {company/organization}
-- **Model ID:** {exact model identifier}
-- **Architecture:** {cross-encoder, late interaction, listwise, etc.}
-- **Training data:** {MS MARCO, code-specific, mixed}
-- **License:** {MIT, Apache 2.0, proprietary API, etc.}
-- **Release date:** {YYYY-MM or approximate}
+## 3. Benchmark Performance
 
-## Specifications
-- **Max input length:** {query + document combined tokens}
-- **Input format:** {query-document pair, listwise, etc.}
-- **Output:** {relevance score range, normalized or raw}
-- **Multi-language support:** {yes/no, which languages}
+### General
 
-## Benchmark Performance
-- **MS MARCO MRR@10:** {if available}
-- **BEIR/MTEB reranking scores:** {if available}
-- **Code-specific reranking performance:** {if benchmarked}
-- **Comparison to cross-encoder baselines:** {relative performance}
+| Benchmark | Score |
+|---|---|
+| MTEB overall | |
+| MTEB retrieval | |
 
-## Code Reranking Suitability
-- **Handles code syntax:** {does it understand code structure or treat as prose?}
-- **Query types tested:** {NL→code, code→code, error→fix}
-- **Long document handling:** {how does it handle function-length or file-length inputs?}
+### Code-Specific
 
-## Operational Characteristics
-- **Deployment:** {API-only, self-hosted, both}
-- **Latency:** {per query-document pair, batch reranking of N candidates}
-- **Cost:** {per 1M tokens, per search, or per request}
-- **GPU requirements:** {if self-hosted}
-- **Candidate limit:** {max documents per reranking call}
+| Benchmark | Score |
+|---|---|
+| CodeSearchNet MRR@10 (avg) | |
+| CoIR average | |
 
-## Strengths
-- {bullet points}
+### CodeSearchNet Per-Language (MRR@10 or nDCG@10)
 
-## Weaknesses
-- {bullet points}
+| Language | Score |
+|---|---|
+| Python | |
+| JavaScript | |
+| Go | |
+| Java | |
+| PHP | |
+| Ruby | |
 
-## Verdict for Kenjutsu
-- **Recommendation:** {STRONG YES / YES / MAYBE / NO / STRONG NO}
-- **Best role:** {primary reranker, secondary/specialized, not suitable}
-- **Rationale:** {1-2 sentences}
+## 4. Code Retrieval Capabilities
+
+- **NL → code:**
+- **Code → code:**
+- **Cross-language:**
+- **Languages supported:**
+
+## 5. Deployment & Cost
+
+| Property | Value |
+|---|---|
+| API pricing | |
+| Self-hosted | |
+| GPU requirements | |
+| Latency | |
+
+## 6. Kenjutsu Fit (1-5)
+
+| Criterion | Score | Notes |
+|---|---|---|
+| Code retrieval quality | | |
+| Context window adequacy | | |
+| Deployment flexibility | | |
+| Cost efficiency | | |
+| Dimension flexibility | | |
+| Ecosystem maturity | | |
+
+## 7. Verdict
+
+- **Recommendation:**
+- **Best use case:**
+- **Key risk:**
 ```
-
----
-
-## Advanced Retrieval Technique Evaluation Template
-
-Each technique gets its own file in `research/dem-121/retrieval-techniques/` named `{technique-name}.md`.
-
-### Required Sections
-
-```markdown
-# {Technique Name}
-
-## Overview
-- **Category:** {chunking, embedding strategy, search fusion, interaction model}
-- **Key papers/implementations:** {citations with dates}
-- **Maturity:** {research-only, early production, production-proven}
-
-## How It Works
-{2-4 paragraph technical explanation with diagrams/pseudocode if helpful}
-
-## Relevance to Code Retrieval
-- **Applicable to Kenjutsu?** {yes/no/partially}
-- **Which pipeline stage?** {indexing, query, retrieval, reranking, fusion}
-- **Complementary or replacement?** {does it replace existing approach or layer on top?}
-
-## Known Implementations
-- {library/framework, maturity, link}
-
-## Trade-offs
-- **Pros:** {bullet points}
-- **Cons:** {bullet points}
-- **Complexity cost:** {low/medium/high — what does adoption require?}
-
-## Verdict for Kenjutsu
-- **Recommendation:** {ADOPT / EVALUATE / DEFER / SKIP}
-- **Priority:** {MVP / Layer 2 / Layer 3 / Future}
-- **Rationale:** {1-2 sentences}
-```
-
----
-
-## Consolidated Assessment Structure
-
-The final `embedding-reranking-assessment.md` will synthesize all individual evaluations into:
-
-1. **Executive Summary** — Top-line recommendations
-2. **Embedding Model Tier List** — Ranked with rationale
-3. **Reranking Model Tier List** — Ranked with rationale
-4. **Retrieval Technique Recommendations** — By pipeline layer
-5. **Recommended Pipeline Architecture** — Single vs. multi-model, with specific model selections
-6. **Cost-Performance Analysis** — Total pipeline cost modeling
-7. **Migration Path** — From current assumptions to recommended stack
-8. **Open Questions** — What we still don't know and how to resolve it
