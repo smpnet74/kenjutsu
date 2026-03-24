@@ -11,7 +11,8 @@
 | 5 | [Context & RAG Strategies](dem-104/context-rag-strategies.md) | Codebase indexing approaches — AST parsing, embedding models, hybrid retrieval, and the cost of blind vector stuffing | Review |
 | 6 | [Differentiation](dem-104/differentiation.md) | Market positioning analysis — false positive problem, governance gap, and Paperclip multi-agent advantage | Review |
 | 7 | [Technical Feasibility](dem-104/technical-feasibility.md) | MVP architecture, build-from-scratch recommendation, 10-14 week estimate, and primary technical risks | Review |
-| 8 | [Retrieval System Evaluation](lightrag-retrieval-systems.md) | LightRAG viability assessment and comparison of 6 retrieval systems for code-aware RAG | Complete |
+| 8 | [Retrieval System Evaluation (v1)](lightrag-retrieval-systems.md) | LightRAG viability assessment and comparison of 6 retrieval systems for code-aware RAG (superseded by #9) | Complete |
+| 9 | [Retrieval Framework Evaluation (v3)](dem-114/retrieval-framework-evaluation.md) | Evaluation of 10 frameworks (RAG + agent) including Agno, Pydantic AI, Mastra, AWS Strands per board request | Review |
 
 ## How to Read This Research
 
