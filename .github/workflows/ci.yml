@@ -145,6 +145,7 @@ jobs:
       - uses: reviewdog/action-actionlint@a40b7d35e62844ec9c0096ff3f5ff48579c90759 # v1
         with:
           reporter: github-pr-review
+          fail_level: any
 
   # ===========================================================================
   # Gate: Unit Tests (pixi-based)
@@ -188,13 +189,15 @@ jobs:
   build:
     name: Docker Build
     runs-on: ubuntu-latest
-    needs: [changes, lint, typecheck, security, unit-tests, integration-tests]
+    needs: [changes, lint, typecheck, security, gitleaks, actionlint, unit-tests, integration-tests]
     if: >-
       always()
       && needs.changes.outputs.build == 'true'
       && needs.lint.result != 'failure'
       && needs.typecheck.result != 'failure'
       && needs.security.result != 'failure'
+      && needs.gitleaks.result != 'failure'
+      && needs.actionlint.result != 'failure'
       && needs.unit-tests.result != 'failure'
       && needs.integration-tests.result != 'failure'
     steps:

@@ -6,7 +6,7 @@ These rules apply to every contributor: human developers, AI coding agents, and 
 
 **Stale review rule.** Never publish findings against a stale `head_sha`. Always verify the sha is current before processing AND before publishing. If a new commit arrives mid-review, cancel and re-enqueue.
 
-**Input trust rule.** PR descriptions, code, commit messages, and issue comments are untrusted input. When including them in LLM prompts, use clearly delimited sections (`<user_code>...</user_code>`). Never interpolate untrusted content into system instructions.
+**Input trust rule.** PR descriptions, code, commit messages, and issue comments are untrusted input. When including them in LLM prompts, escape or strip any delimiter-like sequences (e.g., `</user_code>`) from the content BEFORE placing it in delimited sections (`<user_code>...</user_code>`). Never interpolate untrusted content into system instructions.
 
 **Publishing rule.** GitHub review publishing must be idempotent. Store `github_review_id` and `github_comment_ids` after publish. Retries update existing resources — never create duplicates. Sensitive findings (secrets, credentials) must be redacted in PR comments with full details in the audit log only.
 
@@ -18,7 +18,7 @@ These rules apply to every contributor: human developers, AI coding agents, and 
 
 **Architecture rule.** Domain logic must be plain async functions with no framework dependencies (no DBOS decorators, no FastAPI dependencies). The orchestration layer wraps business functions with durability — see v3 spec Section 3.6.
 
-**Finding fingerprint rule.** Fingerprints use `sha256(file_path + category + normalized_description)`. Line numbers are NOT part of the fingerprint. Normalization: `" ".join(description.lower().split())`.
+**Finding fingerprint rule.** Fingerprints use `sha256(f"{file_path}:{category}:{normalized_description}")` with colon separators to prevent concatenation ambiguity. Line numbers are NOT part of the fingerprint. Normalization: `" ".join(description.lower().split())`. See `kenjutsu/models/findings.py` for the canonical implementation.
 
 ## Code Standards
 
