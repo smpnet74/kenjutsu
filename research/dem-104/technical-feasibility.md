@@ -44,7 +44,7 @@ Building an AI-powered code review tool is technically feasible. The recommended
 
 ### System Overview
 
-```
+```text
 GitHub Webhook Event
        │
        ▼

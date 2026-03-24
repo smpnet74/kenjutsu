@@ -89,7 +89,7 @@ A graph answers these through traversal. The CSG combines **graph traversal for 
 
 ### Indexing Pipeline
 
-```
+```text
 Repository Clone/Fetch
        │
        ▼
@@ -138,7 +138,7 @@ Repository Clone/Fetch
 
 Every competitor runs review in a single process (even Qodo 2.0's "multi-agent"). Kenjutsu uses Paperclip's orchestration to run a **constellation of specialized agents**, each with its own context retrieval strategy, prompt engineering, and LLM configuration.
 
-```
+```text
 PR Event
    │
    ▼
@@ -263,7 +263,7 @@ require_human_review = true
 
 ### End-to-End Review
 
-```
+```text
 T+0s     GitHub webhook → HMAC verify → debounce → enqueue
 T+1s     Diff processor: fetch → parse → tree-sitter extension → chunk
 T+2s     CSG query: incremental update (changed files) + per-agent context retrieval

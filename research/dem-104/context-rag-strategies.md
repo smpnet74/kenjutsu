@@ -270,7 +270,7 @@ Claude and OpenAI support prompt caching — up to 90% cost reduction and 2x+ la
 
 ### Context Pipeline Architecture
 
-```
+```text
 PR Event → Cheap Heuristics (always) → Semantic Retrieval (when needed)
                                            → Reranking → Token Budget
                                               → Multi-Stage LLM Review

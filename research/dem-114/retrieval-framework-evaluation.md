@@ -596,7 +596,7 @@ This finding is the primary reason none of the evaluated prebuilt graph-RAG syst
 
 *This architecture mapping from v1 shows how the LlamaIndex recommendation maps to the multi-layer context pipeline identified in prior research (DEM-108).*
 
-```
+```text
 PR Event → Layer 1 (free heuristics) → Layer 2 (semantic retrieval) → Layer 3 (agentic search)
 ```
 

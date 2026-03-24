@@ -72,7 +72,7 @@ The architecture evolves across phases. Phase 1-2 is deliberately simple. Comple
 
 **Phase 1-2 Architecture (Prove Bet A):**
 
-```
+```text
                           +---------------+
                           |    GitHub      |
                           |   Webhooks     |
@@ -507,7 +507,7 @@ On `synchronize`: timer resets per event. 30-60s quiet → enqueue. If review in
 
 ### 8.1 Prompt Architecture
 
-```
+```text
 System Prompt:
   - Role, output schema (Pydantic), severity/category definitions
   - Repo-specific rules from .kenjutsu.yaml

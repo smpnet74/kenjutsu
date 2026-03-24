@@ -61,7 +61,7 @@ No code retrieval evaluation results are published despite CodeSearchNet being p
 | Sparse + dense hybrid | Dense only |
 
 Query format requires explicit task instructions:
-```
+```text
 Instruct: Given a question, retrieve passages that answer the question
 Query: {query}
 ```

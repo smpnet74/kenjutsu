@@ -53,7 +53,7 @@ None published. No code data in training corpus. Not evaluated on CodeSearchNet,
 | Sparse + dense hybrid | Dense only |
 
 Query format:
-```
+```text
 Represent this sentence for searching relevant passages: {query}
 ```
 

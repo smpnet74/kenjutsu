@@ -58,7 +58,7 @@
 | Sparse + dense hybrid | Dense only |
 
 The instruction-tuning is the key differentiator. Queries use the format:
-```
+```text
 Instruct: {task description}\nQuery: {query}
 ```
 Documents are encoded without prefix. Different instructions per task type enable the model to adapt its embedding space to the specific retrieval task.
