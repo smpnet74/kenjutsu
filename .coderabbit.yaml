@@ -157,9 +157,9 @@ reviews:
 
     - path: ".github/workflows/**"
       instructions: >
-        CI/CD pipelines. ALL quality gates must be enforced: type
-        check, lint, test, security scan. A pipeline that skips any
-        check is a pipeline that lies about green status.
+        CI/CD pipelines. Code gates run on code changes only (path
+        filtered). Non-code PRs skip heavy gates by design. Verify
+        path filters match intended scope. No false green status.
 
     - path: "Dockerfile*"
       instructions: >

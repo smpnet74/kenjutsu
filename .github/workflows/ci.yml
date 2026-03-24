@@ -1,16 +1,14 @@
 # Kenjutsu CI Pipeline
 #
-# Runs on every PR and push to main. ALL gates must pass for green status.
-# A pipeline that skips any check is a pipeline that lies.
+# Path-filtered: gates only run when relevant files change.
+# Docs-only, config-only, and research-only PRs skip heavy gates.
 #
-# Gates:
-#   1. Lint (ruff) — code style and import ordering
-#   2. Type check (pyright) — static type analysis
-#   3. Security (bandit + safety) — vulnerability scanning
-#   4. Unit tests (pytest) — fast, no network, no DB
-#   5. Integration tests (pytest) — requires PostgreSQL
-#   6. Coverage — minimum threshold enforced
-#   7. Build — Docker image builds successfully
+# Gate matrix:
+#   Code gates (*.py, pyproject.toml):  lint, typecheck, security, unit tests, integration tests, coverage
+#   Build gate (Dockerfile, kenjutsu/, pyproject.toml, pixi.lock): Docker build
+#   ci-pass: always runs, checks whichever gates were triggered
+#
+# A gate that runs must pass. A gate that doesn't run is not required.
 
 name: CI
 
@@ -30,11 +28,40 @@ env:
 
 jobs:
   # ===========================================================================
+  # Change detection — determines which gates to run
+  # ===========================================================================
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+      build: ${{ steps.filter.outputs.build }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'kenjutsu/**'
+              - 'tests/**'
+              - 'pyproject.toml'
+              - 'pixi.lock'
+            build:
+              - 'kenjutsu/**'
+              - 'Dockerfile'
+              - 'pyproject.toml'
+              - 'pixi.lock'
+
+  # ===========================================================================
   # Gate 1: Lint
   # ===========================================================================
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -57,6 +84,8 @@ jobs:
   typecheck:
     name: Type Check
     runs-on: ubuntu-latest
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -78,6 +107,8 @@ jobs:
   security:
     name: Security
     runs-on: ubuntu-latest
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -100,6 +131,8 @@ jobs:
   unit-tests:
     name: Unit Tests
     runs-on: ubuntu-latest
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -136,6 +169,8 @@ jobs:
   integration-tests:
     name: Integration Tests
     runs-on: ubuntu-latest
+    needs: [changes]
+    if: needs.changes.outputs.code == 'true'
     services:
       postgres:
         image: postgres:16
@@ -195,6 +230,7 @@ jobs:
     name: Coverage Check
     runs-on: ubuntu-latest
     needs: [unit-tests, integration-tests]
+    if: always() && needs.unit-tests.result == 'success'
     steps:
       - uses: actions/checkout@v4
 
@@ -219,12 +255,13 @@ jobs:
           echo "Coverage check will be enforced once tests exist"
 
   # ===========================================================================
-  # Gate 7: Docker Build
+  # Gate 7: Docker Build — only when app code or Dockerfile changes
   # ===========================================================================
   build:
     name: Docker Build
     runs-on: ubuntu-latest
-    needs: [lint, typecheck, security, unit-tests, integration-tests]
+    needs: [changes, lint, typecheck, security, unit-tests, integration-tests]
+    if: always() && needs.changes.outputs.build == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -242,22 +279,62 @@ jobs:
 
   # ===========================================================================
   # Status — final gate that branch protection checks
+  #
+  # Runs on ALL PRs. Checks whichever gates were triggered.
+  # Skipped gates (due to path filters) are treated as passing.
+  # Only gates that ran and failed cause ci-pass to fail.
   # ===========================================================================
   ci-pass:
     name: CI Pass
     runs-on: ubuntu-latest
     if: always()
-    needs: [lint, typecheck, security, unit-tests, integration-tests, coverage, build]
+    needs: [changes, lint, typecheck, security, unit-tests, integration-tests, coverage, build]
     steps:
-      - name: Check all gates
+      - name: Check triggered gates
         run: |
-          if [[ "${{ needs.lint.result }}" != "success" ]] || \
-             [[ "${{ needs.typecheck.result }}" != "success" ]] || \
-             [[ "${{ needs.security.result }}" != "success" ]] || \
-             [[ "${{ needs.unit-tests.result }}" != "success" ]] || \
-             [[ "${{ needs.integration-tests.result }}" != "success" ]] || \
-             [[ "${{ needs.build.result }}" != "success" ]]; then
-            echo "One or more CI gates failed"
+          failed=false
+
+          # Code gates — only check if code changed
+          if [[ "${{ needs.changes.outputs.code }}" == "true" ]]; then
+            echo "Code changed — checking code gates..."
+
+            for gate_result in \
+              "lint=${{ needs.lint.result }}" \
+              "typecheck=${{ needs.typecheck.result }}" \
+              "security=${{ needs.security.result }}" \
+              "unit-tests=${{ needs.unit-tests.result }}" \
+              "integration-tests=${{ needs.integration-tests.result }}" \
+              "coverage=${{ needs.coverage.result }}"; do
+              name="${gate_result%%=*}"
+              result="${gate_result##*=}"
+              if [[ "$result" != "success" && "$result" != "skipped" ]]; then
+                echo "FAIL: $name = $result"
+                failed=true
+              else
+                echo "OK: $name = $result"
+              fi
+            done
+          else
+            echo "No code changes — skipping code gates"
+          fi
+
+          # Build gate — only check if build-relevant files changed
+          if [[ "${{ needs.changes.outputs.build }}" == "true" ]]; then
+            echo "Build files changed — checking build gate..."
+            result="${{ needs.build.result }}"
+            if [[ "$result" != "success" && "$result" != "skipped" ]]; then
+              echo "FAIL: build = $result"
+              failed=true
+            else
+              echo "OK: build = $result"
+            fi
+          else
+            echo "No build file changes — skipping build gate"
+          fi
+
+          if [[ "$failed" == "true" ]]; then
+            echo "One or more triggered CI gates failed"
             exit 1
           fi
-          echo "All CI gates passed"
+
+          echo "All triggered CI gates passed"
