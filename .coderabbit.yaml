@@ -1,0 +1,409 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit Configuration — Kenjutsu
+# AI-powered PR review SaaS (Python, FastAPI, tree-sitter, LiteLLM)
+#
+# In PR, comment "@coderabbitai configuration" to dump the active config
+
+# =============================================================================
+# GLOBAL SETTINGS
+# =============================================================================
+
+language: "en-US"
+
+tone_instructions: >
+  Focus on Python correctness, async safety, security boundaries,
+  and prompt injection defense. Flag untrusted input handling issues.
+
+early_access: false
+enable_free_tier: true
+
+# =============================================================================
+# REVIEWS
+# =============================================================================
+
+reviews:
+  profile: "chill"
+  request_changes_workflow: false
+  high_level_summary: true
+  high_level_summary_instructions: ""
+  high_level_summary_placeholder: "@coderabbitai summary"
+  high_level_summary_in_walkthrough: false
+
+  auto_title_placeholder: "@coderabbitai"
+  auto_title_instructions: >
+    Use conventional commit format: <type>: <description>.
+    Types: feat, fix, docs, chore, refactor, test, style, perf, ci.
+    Keep under 70 characters. Lowercase after the colon.
+
+  review_status: true
+  review_details: false
+  commit_status: true
+  fail_commit_status: false
+  collapse_walkthrough: false
+  changed_files_summary: true
+  sequence_diagrams: true
+  estimate_code_review_effort: true
+  poem: false
+  in_progress_fortune: true
+  enable_prompt_for_ai_agents: true
+  disable_cache: false
+
+  assess_linked_issues: true
+  related_issues: true
+  related_prs: true
+
+  suggested_labels: true
+  labeling_instructions: []
+  auto_apply_labels: false
+
+  suggested_reviewers: true
+  auto_assign_reviewers: false
+
+  abort_on_close: true
+
+  # ---------------------------------------------------------------------------
+  # PATH FILTERS
+  # ---------------------------------------------------------------------------
+  path_filters:
+    - "!pixi.lock"
+    - "!*.lock"
+    - "!dist/**"
+    - "!.pixi/**"
+
+  # ---------------------------------------------------------------------------
+  # PATH INSTRUCTIONS (each instruction ≤250 chars)
+  # ---------------------------------------------------------------------------
+  path_instructions:
+    - path: "kenjutsu/server/**"
+      instructions: >
+        Webhook server. HMAC-SHA256 mandatory with no bypass paths. Async
+        dispatch must be non-blocking. Debounce resets timer on each
+        synchronize event. Must return 200 within 500ms. Persist every
+        webhook by delivery_id for idempotency and replay.
+
+    - path: "kenjutsu/github/**"
+      instructions: >
+        GitHub provider. Check JWT refresh at 50min not expiry.
+        Verify pending review pattern: create->accumulate->submit atomic.
+        Rate limit headers must be checked proactively, not reactively.
+
+    - path: "kenjutsu/pipeline/**"
+      instructions: >
+        Review pipeline steps. Verify sha guard runs before AND after
+        LLM work. Business logic must be plain async functions with no
+        DBOS imports. Check token budget never exceeds model limits.
+
+    - path: "kenjutsu/context/**"
+      instructions: >
+        Structural context extraction. Verify tree-sitter parses from
+        head_sha not default branch. Check import resolution per-language.
+        Co-change mining must limit git log depth. Flag missing languages.
+
+    - path: "kenjutsu/analysis/**"
+      instructions: >
+        Deterministic analysis. AST-grep patterns must be per-language.
+        Structural checks are NOT type checking—scope claims correctly.
+        Findings must carry origin and confidence dimensions.
+
+    - path: "kenjutsu/review/**"
+      instructions: >
+        LLM review engine. Prompts must use delimited untrusted sections
+        for code/PR descriptions. Output parses through Pydantic schema
+        with repair logic. Model fallback chain must trigger on provider
+        failure. Check prompt caching is configured.
+
+    - path: "kenjutsu/evidence/**"
+      instructions: >
+        Evidence scoring. Cross-model self-reflection must be batched,
+        not per-finding. Verify different model family is used for
+        scoring. Check confidence tier assignment matches taxonomy.
+
+    - path: "kenjutsu/publisher/**"
+      instructions: >
+        GitHub publishing. Verify idempotent: retries update not
+        create. Sensitive findings must be redacted in PR comments.
+        Predictive warnings go in Check Run summary, NOT inline.
+
+    - path: "kenjutsu/config/**"
+      instructions: >
+        Configuration system. Zero-config must work with all defaults.
+        Verify canonical severity enum: critical/warning/suggestion
+        used everywhere. Config parsed from head_sha in bare mirror.
+
+    - path: "kenjutsu/db/**"
+      instructions: >
+        Database schema and migrations. All tables scoped by
+        installation_id for tenant isolation. Findings table needs
+        fingerprint column. Alembic migrations must be idempotent
+        and reversible. No cross-tenant data access by construction.
+
+    - path: "kenjutsu/mirror/**"
+      instructions: >
+        Bare mirror management. Verify git fetch is serialized per
+        repo but concurrent reads are safe. Check cleanup on uninstall
+        deletes all data. Large repos need sparse checkout handling.
+
+    - path: "kenjutsu/models/**"
+      instructions: >
+        Pydantic models and types. Severity enum must be one canonical
+        set. Signal taxonomy: origin, confidence, severity, category,
+        publishability. Check finding fingerprint is stable.
+
+    - path: "tests/**"
+      instructions: >
+        Test suite. Check edge case coverage: large diffs, binary
+        files, force pushes, concurrent webhooks, stale shas. No
+        network deps in unit tests. Integration tests use fixtures.
+
+    - path: ".github/workflows/**"
+      instructions: >
+        CI/CD pipelines. ALL quality gates must be enforced: type
+        check, lint, test, security scan. A pipeline that skips any
+        check is a pipeline that lies about green status.
+
+    - path: "Dockerfile*"
+      instructions: >
+        Container build. Use multi-stage for smaller images. No secrets
+        in build args or layers. Health check endpoint required. Pin
+        base image versions, do not use :latest tags.
+
+  # ---------------------------------------------------------------------------
+  # AUTO REVIEW
+  # ---------------------------------------------------------------------------
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    auto_pause_after_reviewed_commits: 5
+    drafts: false
+    ignore_title_keywords:
+      - "WIP"
+      - "do not review"
+      - "skip review"
+    description_keyword: ""
+    labels: []
+    base_branches: []
+    ignore_usernames:
+      - "dependabot[bot]"
+      - "renovate[bot]"
+      - "github-actions[bot]"
+
+  # ---------------------------------------------------------------------------
+  # PRE-MERGE CHECKS
+  # ---------------------------------------------------------------------------
+  pre_merge_checks:
+    override_requested_reviewers_only: false
+    title:
+      mode: "warning"
+      requirements: "Must use conventional commit format (feat:, fix:, docs:, chore:, refactor:, test:, style:, perf:, ci:)"
+    description:
+      mode: "warning"
+    issue_assessment:
+      mode: "off"
+    docstrings:
+      mode: "off"
+      threshold: 80
+    custom_checks:
+      - name: "Trust Mechanics Integrity"
+        mode: "warning"
+        instructions: >
+          If pipeline/ changed, verify sha guard is present before
+          processing AND before publishing. Findings must never be
+          published against a stale head_sha.
+      - name: "Signal Taxonomy Consistency"
+        mode: "warning"
+        instructions: >
+          If models/ or evidence/ changed, verify the five signal
+          dimensions (origin, confidence, severity, category,
+          publishability) are used consistently throughout.
+      - name: "Prompt Injection Safety"
+        mode: "warning"
+        instructions: >
+          If review/ or prompts/ changed, verify untrusted input
+          (code, PR descriptions, comments) is placed in delimited
+          sections and never interpolated into system instructions.
+
+  # ---------------------------------------------------------------------------
+  # FINISHING TOUCHES
+  # ---------------------------------------------------------------------------
+  finishing_touches:
+    docstrings:
+      enabled: false
+    unit_tests:
+      enabled: false
+    custom: []
+
+  # ---------------------------------------------------------------------------
+  # TOOLS
+  # ---------------------------------------------------------------------------
+  tools:
+    # Relevant — Python project
+    ruff:
+      enabled: true
+    semgrep:
+      enabled: true
+    gitleaks:
+      enabled: true
+    trufflehog:
+      enabled: true
+    markdownlint:
+      enabled: true
+    languagetool:
+      enabled: true
+    github-checks:
+      enabled: true
+    dotenvLint:
+      enabled: true
+    osvScanner:
+      enabled: true
+    yamllint:
+      enabled: true
+    actionlint:
+      enabled: true
+    hadolint:
+      enabled: true
+
+    # Not relevant
+    eslint:
+      enabled: false
+    biome:
+      enabled: false
+    pylint:
+      enabled: false
+    flake8:
+      enabled: false
+    shellcheck:
+      enabled: false
+    checkov:
+      enabled: false
+    trivy:
+      enabled: false
+    oxc:
+      enabled: false
+    phpstan:
+      enabled: false
+    phpmd:
+      enabled: false
+    phpcs:
+      enabled: false
+    swiftlint:
+      enabled: false
+    detekt:
+      enabled: false
+    rubocop:
+      enabled: false
+    clippy:
+      enabled: false
+    fortitudeLint:
+      enabled: false
+    buf:
+      enabled: false
+    regal:
+      enabled: false
+    pmd:
+      enabled: false
+    clang:
+      enabled: false
+    cppcheck:
+      enabled: false
+    opengrep:
+      enabled: false
+    shopifyThemeCheck:
+      enabled: false
+    luacheck:
+      enabled: false
+    brakeman:
+      enabled: false
+    psscriptanalyzer:
+      enabled: false
+    blinter:
+      enabled: false
+    checkmake:
+      enabled: false
+    htmlhint:
+      enabled: false
+    stylelint:
+      enabled: false
+    sqlfluff:
+      enabled: false
+    prismaLint:
+      enabled: false
+    tflint:
+      enabled: false
+    circleci:
+      enabled: false
+    smartyLint:
+      enabled: false
+    emberTemplateLint:
+      enabled: false
+    golangci-lint:
+      enabled: false
+
+# =============================================================================
+# CHAT
+# =============================================================================
+
+chat:
+  art: false
+  auto_reply: true
+  integrations:
+    jira:
+      usage: "disabled"
+    linear:
+      usage: "disabled"
+
+# =============================================================================
+# KNOWLEDGE BASE
+# =============================================================================
+
+knowledge_base:
+  opt_out: false
+  web_search:
+    enabled: true
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "**/CLAUDE.md"
+      - "**/AGENTS.md"
+  learnings:
+    scope: "global"
+  issues:
+    scope: "auto"
+  pull_requests:
+    scope: "auto"
+  jira:
+    usage: "disabled"
+    project_keys: []
+  linear:
+    usage: "disabled"
+    team_keys: []
+  mcp:
+    usage: "auto"
+    disabled_servers: []
+  linked_repositories: []
+
+# =============================================================================
+# ISSUE ENRICHMENT
+# =============================================================================
+
+issue_enrichment:
+  auto_enrich:
+    enabled: false
+  planning:
+    enabled: false
+    auto_planning:
+      enabled: false
+      labels: []
+  labeling:
+    labeling_instructions: []
+    auto_apply_labels: false
+
+# =============================================================================
+# CODE GENERATION
+# =============================================================================
+
+code_generation:
+  docstrings:
+    language: "en-US"
+    path_instructions: []
+  unit_tests:
+    path_instructions: []
