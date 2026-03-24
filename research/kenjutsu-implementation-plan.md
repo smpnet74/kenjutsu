@@ -66,12 +66,26 @@ tests/
 | Type check | Code changes | pyright |
 | Security | Code changes | bandit + pip-audit |
 | Unit tests | Code changes | pytest tests/unit/ |
-| Integration tests | Code changes | pytest tests/integration/ (PostgreSQL service) |
+| Integration tests | Code changes | pytest tests/integration/ (Testcontainers spins up PostgreSQL, SurrealDB Phase 3+) |
 | Coverage | Tests run | coverage threshold (80% target) |
 | Docker build | Dockerfile or app code changes | docker build |
 | ci-pass | Always | Aggregates all triggered gates |
 
 Non-code PRs (research/, docs/, .md files) skip heavy gates automatically.
+
+### Testing strategy
+
+Tests bring their own infrastructure via **Testcontainers**. Integration tests spin up real PostgreSQL (and SurrealDB in Phase 3+) as Docker containers inside the test run. No manual database setup required — same behavior locally and in CI.
+
+| Test layer | Directory | Infrastructure | When to use |
+|-----------|-----------|---------------|-------------|
+| Unit | `tests/unit/` | None — pure logic | All business logic, models, parsing |
+| Integration | `tests/integration/` | Testcontainers (PostgreSQL, SurrealDB Phase 3+) | DB operations, webhook handling, full pipeline |
+| E2E | `tests/e2e/` (future) | Testcontainers + GitHub API mock | Full review cycle |
+
+**Fixture pattern:** Use `@pytest.fixture(scope="session")` with Testcontainers context managers in `tests/conftest.py`. See v3 spec Section 3.5 for code examples.
+
+**Important:** When adding new services, add a Testcontainers fixture — do NOT add CI `services:` blocks. Tests own their infrastructure.
 
 ### Pixi tasks (use these, not raw commands)
 
@@ -164,9 +178,13 @@ Set up the Kenjutsu repo with the Python project structure, CI pipeline, and dep
 Assigned to: Senior Engineer A (Backend)
 - Create initial schema: `installations`, `repos`, `reviews`, `findings`, `suppressions`, `webhook_events`, `audit_log`
 - Use Alembic for migrations within the existing pixi workspace (`pixi add alembic psycopg sqlalchemy` when starting this issue)
+- Add `testcontainers[postgres]` to dev dependencies
+- Create `tests/conftest.py` with `postgres_url` session fixture using Testcontainers (see v3 spec Section 3.5)
+- Update CI workflow: remove `services: postgres:` block from integration-tests job — Testcontainers handles it
+- Write migration integration tests that run `alembic upgrade head` against the Testcontainers PostgreSQL
 - All tables include `installation_id` scoping per v3 spec Section 10
 - Place migration code in `kenjutsu/db/` (matches CodeRabbit path instruction)
-- Acceptance: `alembic upgrade head` runs clean, schema matches spec
+- Acceptance: `alembic upgrade head` runs clean against Testcontainers PostgreSQL, schema matches spec, works identically local and CI
 
 **c) CI pipeline — COMPLETE**
 ~~Assigned to: DevOps Engineer~~
@@ -729,10 +747,11 @@ Assigned to: Chief Architect
 
 **a) Integration test suite**
 Assigned to: QA Engineer
+- All integration tests use Testcontainers — PostgreSQL spun up via `postgres_url` fixture in `tests/conftest.py`. No CI `services:` blocks.
 - End-to-end tests: webhook → pipeline → published review (against test GitHub repo)
 - Edge cases: large PRs, binary files, empty diffs, force pushes, concurrent webhooks
 - Trust mechanic tests: sha guard, supersession, idempotent publishing, debounce
-- Acceptance: Full test suite green. Edge cases handled correctly.
+- Acceptance: Full test suite green locally and in CI with identical behavior. Edge cases handled correctly.
 
 **b) Security review**
 Assigned to: Security Engineer
@@ -811,11 +830,13 @@ Assigned to: Technical Planner A
 
 **a) SurrealDB setup and deployment**
 Assigned to: Senior Engineer C
-- Docker container with persistent volume
+- Docker container with persistent volume for production
 - Python SDK integration
 - Connection management, health checks
 - Schema applied from `.surql` files on deploy
-- Acceptance: SurrealDB running, accessible from pipeline workers, schema applied.
+- Add Testcontainers `surrealdb_url` session fixture to `tests/conftest.py` using `DockerContainer("surrealdb/surrealdb:v2")` (see v3 spec Section 3.5 for pattern)
+- All SurrealDB integration tests use the Testcontainers fixture — no manual SurrealDB setup required
+- Acceptance: SurrealDB running in production, accessible from pipeline workers, schema applied. Integration tests pass locally and in CI identically via Testcontainers.
 
 **b) Indexing pipeline**
 Assigned to: Senior Engineer A

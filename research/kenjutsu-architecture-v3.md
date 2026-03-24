@@ -151,8 +151,53 @@ Embedding pipeline, reranking, and Layer 3 agentic search added to the existing 
 | **GitHub API** | PyGithub or httpx | PR fetching, review publishing |
 | **Prompt templates** | Jinja2 | Conditional rendering, per-language variations |
 | **Structured output** | Pydantic | Type validation, JSON schema for LLM output |
+| **Test infrastructure** | Testcontainers | Tests declare their own infrastructure as code — same behavior local and CI |
 
-### 3.5 DBOS Abstraction Boundary
+### 3.5 Testing Strategy
+
+Tests bring their own infrastructure via Testcontainers. No manual database setup, no "works on my machine," no divergence between local and CI.
+
+**Test layers:**
+
+| Layer | Directory | Infrastructure | Speed |
+|-------|-----------|---------------|-------|
+| Unit tests | `tests/unit/` | None — pure logic, no I/O | < 1 second |
+| Integration tests | `tests/integration/` | Testcontainers (PostgreSQL, SurrealDB Phase 3+) | 10-30 seconds |
+| End-to-end tests | `tests/e2e/` (future) | Testcontainers + GitHub API mock | 30-60 seconds |
+
+**Fixture pattern:**
+
+```python
+# tests/conftest.py
+import pytest
+from testcontainers.postgres import PostgresContainer
+
+@pytest.fixture(scope="session")
+def postgres_url():
+    """Spin up a fresh PostgreSQL for the test session."""
+    with PostgresContainer("postgres:16") as pg:
+        yield pg.get_connection_url()
+
+# Phase 3 addition — just add another fixture
+from testcontainers.generic import DockerContainer
+
+@pytest.fixture(scope="session")
+def surrealdb_url():
+    """Spin up SurrealDB for graph integration tests."""
+    with DockerContainer("surrealdb/surrealdb:v2") \
+        .with_exposed_ports(8000) \
+        .with_command("start --user root --pass root") as surreal:
+        surreal.wait_for_logs("Started web server")
+        host = surreal.get_container_host_ip()
+        port = surreal.get_exposed_port(8000)
+        yield f"ws://{host}:{port}"
+```
+
+**CI implications:** GitHub Actions `ubuntu-latest` has Docker available, so Testcontainers works natively. The CI `services:` block for PostgreSQL is replaced by Testcontainers — tests own their infrastructure, CI just runs pytest.
+
+**Why this matters for Kenjutsu:** As the architecture evolves (PostgreSQL Phase 1 → add SurrealDB Phase 3 → add mock APIs Phase 4), the test infrastructure grows by adding fixtures, not rewriting CI workflows.
+
+### 3.6 DBOS Abstraction Boundary
 
 Business logic is plain async functions. The orchestration layer adds durability. This protects against DBOS lock-in.
 
