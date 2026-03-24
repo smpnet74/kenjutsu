@@ -4,6 +4,7 @@
 # GitHub enforces this via branch protection rules.
 
 # CI and infrastructure — changes here are production logic
+/.github/CODEOWNERS     @smpnet74
 .github/workflows/**    @smpnet74
 Dockerfile*             @smpnet74
 

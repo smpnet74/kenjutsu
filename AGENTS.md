@@ -82,7 +82,7 @@ These rules are non-negotiable. Every PR must follow them.
 - Sensitive redaction: secrets never appear in published comments
 - Tenant isolation: queries never return cross-tenant data
 
-**Boundary contracts need integration tests.** Every external boundary (GitHub API, PostgreSQL, SurrealDB Phase 3+, LLM providers) needs contract tests that verify the integration works correctly with a real service via Testcontainers.
+**Boundary contracts need integration tests.** Every external boundary needs contract tests that verify integration behavior. Use real services via Testcontainers where available (PostgreSQL, SurrealDB). For non-containerized third-party services (GitHub API, LLM providers), use stable contract fixtures or recorded HTTP mocks plus periodic live smoke checks in staging.
 
 **Deterministic analysis needs regression tests.** Every AST-grep pattern and structural check needs a test with a code sample that triggers it and a test with code that doesn't.
 
