@@ -230,7 +230,7 @@ jobs:
     name: Coverage Check
     runs-on: ubuntu-latest
     needs: [unit-tests, integration-tests]
-    if: needs.unit-tests.result == 'success'
+    if: always() && needs.unit-tests.result == 'success'
     steps:
       - uses: actions/checkout@v4
 
@@ -261,7 +261,7 @@ jobs:
     name: Docker Build
     runs-on: ubuntu-latest
     needs: [changes, lint, typecheck, security, unit-tests, integration-tests]
-    if: needs.changes.outputs.build == 'true'
+    if: always() && needs.changes.outputs.build == 'true'
     steps:
       - uses: actions/checkout@v4
 
@@ -303,7 +303,8 @@ jobs:
               "typecheck=${{ needs.typecheck.result }}" \
               "security=${{ needs.security.result }}" \
               "unit-tests=${{ needs.unit-tests.result }}" \
-              "integration-tests=${{ needs.integration-tests.result }}"; do
+              "integration-tests=${{ needs.integration-tests.result }}" \
+              "coverage=${{ needs.coverage.result }}"; do
               name="${gate_result%%=*}"
               result="${gate_result##*=}"
               if [[ "$result" != "success" && "$result" != "skipped" ]]; then
