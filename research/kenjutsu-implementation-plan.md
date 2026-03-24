@@ -799,8 +799,8 @@ Assigned to: QA Engineer
 - All integration tests use Testcontainers — PostgreSQL spun up via `postgres_url` fixture in `tests/conftest.py`. No CI `services:` blocks.
 - Integration boundary tests: webhook → pipeline → publisher flow using GitHub API contract fixtures/mocks (no live GitHub dependency in CI — live smoke tests run in staging per Issue 1.11)
 - Edge cases: large PRs, binary files, empty diffs, force pushes, concurrent webhooks
-- Trust mechanic tests: sha guard, supersession, idempotent publishing, debounce
-- Acceptance: Full test suite green locally and in CI with identical behavior. Edge cases handled correctly.
+- Trust mechanic tests (full contract from AGENTS.md): sha guard (stale sha → abort), supersession (new sha → old review superseded), idempotent publishing (retry → no duplicates), debounce (rapid pushes → single enqueue), finding fingerprint stability (same finding = same fingerprint across reruns), sensitive finding redaction (secrets never in published comments), tenant isolation (queries never return cross-tenant data)
+- Acceptance: Full test suite green locally and in CI with identical behavior. All trust mechanics from AGENTS.md covered. Edge cases handled correctly.
 
 **b) Security review**
 Assigned to: Security Engineer

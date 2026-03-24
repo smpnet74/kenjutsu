@@ -480,7 +480,7 @@ Only built if Bet A is proven and Layer 1 quality plateaus.
 
 | Dimension | Values | Description |
 |-----------|--------|-------------|
-| **origin** | `deterministic`, `structural`, `llm`, `predictive` | How the finding was produced. Note: `structural` (not `graph`) — in Phase 2 there is no graph store, only tree-sitter analysis. Renamed to `graph` in Phase 3 if SurrealDB is adopted. |
+| **origin** | `deterministic`, `structural`, `llm`, `predictive` | How the finding was produced. `structural` covers tree-sitter analysis (Phase 2) AND graph queries (Phase 3+) — one stable enum value across all phases. |
 | **confidence** | `verified`, `high`, `medium`, `low` | How certain we are |
 | **severity** | `critical`, `warning`, `suggestion` | How important to fix (one canonical enum) |
 | **category** | `bug`, `security`, `breaking-change`, `performance`, `missing-test`, `co-change`, `stale-doc`, `style` | What kind |
