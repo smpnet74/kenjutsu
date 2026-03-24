@@ -296,22 +296,39 @@ jobs:
 
           # Code gates — only check if code changed
           if [[ "${{ needs.changes.outputs.code }}" == "true" ]]; then
-            for gate in lint typecheck security unit-tests integration-tests; do
-              result="${{ needs[gate].result }}"
+            echo "Code changed — checking code gates..."
+
+            for gate_result in \
+              "lint=${{ needs.lint.result }}" \
+              "typecheck=${{ needs.typecheck.result }}" \
+              "security=${{ needs.security.result }}" \
+              "unit-tests=${{ needs.unit-tests.result }}" \
+              "integration-tests=${{ needs.integration-tests.result }}"; do
+              name="${gate_result%%=*}"
+              result="${gate_result##*=}"
               if [[ "$result" != "success" && "$result" != "skipped" ]]; then
-                echo "FAIL: $gate = $result"
+                echo "FAIL: $name = $result"
                 failed=true
+              else
+                echo "OK: $name = $result"
               fi
             done
+          else
+            echo "No code changes — skipping code gates"
           fi
 
           # Build gate — only check if build-relevant files changed
           if [[ "${{ needs.changes.outputs.build }}" == "true" ]]; then
+            echo "Build files changed — checking build gate..."
             result="${{ needs.build.result }}"
             if [[ "$result" != "success" && "$result" != "skipped" ]]; then
               echo "FAIL: build = $result"
               failed=true
+            else
+              echo "OK: build = $result"
             fi
+          else
+            echo "No build file changes — skipping build gate"
           fi
 
           if [[ "$failed" == "true" ]]; then
@@ -319,4 +336,4 @@ jobs:
             exit 1
           fi
 
-          echo "All triggered CI gates passed (skipped gates are OK)"
+          echo "All triggered CI gates passed"

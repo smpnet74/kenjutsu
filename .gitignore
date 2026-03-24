@@ -1,7 +1,6 @@
 .paperclip/
 node_modules/
 dist/
-.pixi/
 .env
 __pycache__/
 *.pyc

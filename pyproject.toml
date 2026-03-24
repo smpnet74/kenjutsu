@@ -75,7 +75,7 @@ skips = ["B101"]
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
-platforms = ["osx-arm64"]
+platforms = ["osx-arm64", "linux-64"]
 
 [tool.pixi.pypi-dependencies]
 kenjutsu = { path = ".", editable = true }
@@ -93,7 +93,7 @@ test-integration = "pytest tests/integration/ -v --tb=short -x"
 test-all = "pytest tests/ -v --tb=short --cov=kenjutsu --cov-report=term-missing"
 security = "bandit -r kenjutsu/ -ll"
 ci = { cmd = "echo 'All gates passed'", depends-on = ["lint", "typecheck", "test", "security"] }
-serve = "uvicorn kenjutsu.server:app --reload --port 8000"
+serve = "uvicorn kenjutsu.app:app --reload --port 8000"
 
 [tool.pixi.dependencies]
 python = ">=3.12,<3.13"
