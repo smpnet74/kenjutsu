@@ -128,7 +128,7 @@ Phases flow continuously unless there is an explicit **HARD GATE** marker. Here 
 | Transition | Gate Type | Rule |
 |-----------|-----------|------|
 | Phase 1 → Phase 2 | **No gate.** | Begin Phase 2 sub-issues as soon as their Phase 1 dependencies are merged. Do NOT wait for all of Phase 1 to complete. If the webhook server is merged and the diff processor is merged, the LLM review engine can start even if the evaluation harness isn't done yet. |
-| Phase 2 → Phase 3 | **HARD GATE.** | STOP. Do not begin any Phase 3 work until issue 2.8 (Bet A Validation) is complete and the Chief Architect has issued a written go/no-go decision approved by the CEO. If the decision is "no-go," Phase 3 does not start. |
+| Phase 2 → Phase 3 | **HARD GATE.** | STOP. Do not begin any Phase 3 work until issue 2.9 (Bet A Validation) is complete and the Chief Architect has issued a written go/no-go decision approved by the CEO. If the decision is "no-go," Phase 3 does not start. |
 | Phase 3 → Phase 4 | **HARD GATE.** | STOP. Do not begin any Phase 4 work until issue 3.4 (Bet B Validation) is complete with a written go/no-go decision approved by the CEO. |
 | Phase 4 → Phase 5 | **No gate.** | Begin Phase 5 work as soon as Phase 4 sub-issues start landing. Production hardening can overlap with late Phase 4 work. |
 
@@ -287,7 +287,7 @@ Assigned to: Senior Engineer A
 Assigned to: Senior Engineer A
 - For each hunk, use tree-sitter to find the enclosing function/class
 - Extend hunk to include the full enclosing scope
-- Support 5 first-class languages: Python, TypeScript/JavaScript, Go, Java, Rust
+- First-class support for TypeScript/JavaScript and Python. Basic tree-sitter AST parsing for Go, Java, Rust (no deterministic rules or import resolution until wedge validated).
 - Acceptance: Hunks in the middle of a function are extended to show the full function. Works for all 5 languages.
 
 **c) Token budget management**
@@ -439,7 +439,7 @@ Assigned to: Research Specialist
 - Collect 50+ real-world PRs across 5+ repos (mix of small/medium/large, refactor/feature/bugfix)
 - Annotate: known bugs in the diff, known false positive patterns, expected findings
 - Seed from PR-Agent prompt catalog (mine git history for edge cases)
-- Acceptance: Corpus covers all 5 first-class languages, includes at least 10 refactor/API-change PRs
+- Acceptance: Corpus covers TypeScript/JavaScript and Python, includes at least 10 refactor/API-change PRs
 
 **b) Evaluation runner**
 Assigned to: QA Engineer
@@ -537,58 +537,27 @@ Two separate GitHub Apps are required — staging and production. Same code, dif
 
 **Flow:** Merge each sub-issue as it passes acceptance criteria. Start Phase 2 sub-issues as soon as their Phase 1 dependencies are merged — do NOT wait for all of Phase 1.
 
-**HARD GATE at end of Phase 2:** After issue 2.8 (Bet A Validation) completes, ALL Phase 3 work is blocked until the Chief Architect issues a written go/no-go decision approved by the CEO. Criteria: >15% accepted-finding lift on refactor/API/security PRs AND >20% of accepted findings from structural/graph sources. If no-go, Phase 3 does not start — the team pivots to optimizing Phases 1-2.
+**HARD GATE at end of Phase 2:** After issue 2.9 (Bet A Validation) completes, ALL Phase 3 work is blocked until the Chief Architect issues a written go/no-go decision approved by the CEO. Criteria: >15% accepted-finding lift on refactor/API/security PRs AND >20% of accepted findings from structural/graph sources. If no-go, Phase 3 does not start — the team pivots to optimizing Phases 1-2.
 
 ---
 
-### 2.1 Architecture Spec Decomposition
+### 2.1 Architecture Review Checkpoint
 
-**Assigned to:** Chief Architect → Technical Planner A
-**Priority:** Critical (blocks all Phase 2 implementation)
+**Assigned to:** Chief Architect
+**Priority:** Critical (one meeting, then engineers start coding)
 
-Produce detailed technical specs for each Phase 2 component. These specs become the implementation reference for engineers.
-
-**Sub-issues:**
-
-**a) Structural context extractor spec**
-Assigned to: Technical Planner A
-- Detail: how imports are resolved per language (5 languages), how callers are found, co-change mining parameters, test matching heuristics
-- Include the graph extraction accuracy contract from v3 spec Section 6.4
-- Document known blind spots per language
-- Acceptance: Chief Architect approves. Engineers can implement from this spec without ambiguity.
-
-**b) Deterministic analysis rules spec**
-Assigned to: Technical Planner A
-- Catalog: AST-grep patterns per language, structural checks (removed params, changed returns, removed exports)
-- Scope explicitly per v3 spec: NOT a type checker, catches syntactic structural breakage only
-- Acceptance: Chief Architect approves.
-
-**c) Review engine and prompt spec**
-Assigned to: Technical Planner A
-- Prompt template structure (Jinja2), output schema (Pydantic), model selection logic (complexity scoring formula)
-- Prompt injection defense framing
-- Sensitive finding detection approach (regex + entropy)
-- Self-reflection batching strategy
-- Incorporate learnings from PR-Agent study catalog (1.10)
-- Acceptance: Chief Architect approves.
-
----
-
-### 2.2 Implementation Planning
-
-**Assigned to:** Engineering Manager → Technical Planner B
-**Priority:** Critical (blocks implementation)
-
-Decompose the approved specs into engineer-ready issues with acceptance criteria.
+Single review checkpoint before Phase 2 implementation begins. NOT a multi-week spec decomposition.
 
 **Sub-issues:**
 
-**a) Phase 2 issue decomposition**
-Assigned to: Technical Planner B
-- Break each spec from 2.1 into implementation issues assigned to specific engineers
-- Each issue has: acceptance criteria, test plan, dependencies
-- Sequence: structural context and deterministic analysis can parallel with LLM integration
-- Acceptance: Engineering Manager approves. All Phase 2 work has clear owners and sequencing.
+**a) Architecture review and kickoff**
+Assigned to: Chief Architect
+- Review the v3 spec Sections 5-8 with Engineering Manager and senior engineers
+- Resolve any ambiguities in: import resolution (TypeScript/JavaScript + Python only), structural check scope, prompt template structure, evidence scoring rules
+- Confirm the evidence elevation contract: what structural facts justify `confidence: high` vs `confidence: medium` for each finding class
+- Confirm language scope: TypeScript/JavaScript and Python are first-class. Go/Java/Rust get basic AST parsing only.
+- Engineering Manager assigns implementation issues directly after review — no separate planning phase
+- Acceptance: Engineers have enough clarity to start coding. Any remaining questions resolved async via issue comments.
 
 ---
 
@@ -606,7 +575,7 @@ Assigned to: Senior Engineer A
 - Parse changed files with tree-sitter, extract import statements
 - Resolve imports to files in the repo (per-language resolution rules)
 - Reverse imports: scan repo for files that import the changed files
-- 5 first-class languages
+- TypeScript/JavaScript and Python (first-class). Basic AST for Go, Java, Rust.
 - Acceptance: Given a changed file, returns its imports and reverse imports correctly for all 5 languages.
 
 **b) Caller/callee extraction**
@@ -765,10 +734,36 @@ Assigned to: Senior Engineer D
 
 ---
 
-### 2.8 Bet A Validation
+### 2.8 Feedback Collection
+
+**Assigned to:** Engineering Manager → Senior Engineer D
+**Priority:** High (blocks Bet A measurement)
+
+Lightweight feedback signals must be collectible before Bet A evaluation runs.
+
+**Sub-issues:**
+
+**a) Feedback slash commands**
+Assigned to: Senior Engineer D
+- `/kenjutsu accept` — explicit positive signal on a finding (stores fingerprint + verdict)
+- `/kenjutsu reject` — explicit negative signal
+- Map GitHub comment thread resolution as implicit accept
+- Store per finding fingerprint in `findings` table: `verdict` (accepted/rejected/ignored), `verdict_at`
+- Acceptance: feedback signals collectible on staging PRs, queryable for FP rate calculation.
+
+---
+
+### 2.9 Bet A Validation
 
 **Assigned to:** Chief Architect + QA Engineer
 **Priority:** Critical (gates Phase 3)
+
+**EXPERIMENT FREEZE:** During Bet A evaluation, the following must be frozen:
+- One primary model (Claude Sonnet) — no multi-provider routing
+- One fixed prompt family — no prompt changes during evaluation runs
+- One benchmark corpus (50+ PRs, TypeScript/JavaScript + Python)
+- One diff-only baseline, one structural-context variant
+- See v3 spec Appendix E (Evaluation Contract) for full protocol
 
 **Sub-issues:**
 
@@ -776,17 +771,18 @@ Assigned to: Senior Engineer D
 Assigned to: QA Engineer
 - Run full benchmark corpus with structural context enabled
 - Compare against diff-only baseline from 1.9c
-- Compute: accepted-finding rate lift, graph-origin finding share, FP rate per tier, latency impact
-- Ref: v3 spec Section 2 go/no-go criteria
-- Acceptance: Data produced, results reported to Chief Architect and CEO.
+- Compute: accepted-finding rate lift, structural-origin finding share, FP rate per tier, latency impact
+- Use Appendix E evaluation contract: accepted = thread resolved or code changed, rejected = /kenjutsu reject, ignored = no response in 48h
+- Ref: v3 spec Section 2 go/no-go criteria + Appendix E
+- Acceptance: Data produced with frozen experiment protocol. Results reported to Chief Architect and CEO.
 
 **b) Go/no-go decision**
 Assigned to: Chief Architect
 - Evaluate metrics against thresholds:
   - >15% accepted-finding lift on refactor/API/security PRs → proceed
-  - >20% of accepted findings from structural/graph sources → proceed
+  - >20% of accepted findings from structural sources → proceed
   - Otherwise → simplify, do not start Phase 3
-- Decision documented with data
+- Decision documented with data and frozen experiment conditions
 - Acceptance: Written go/no-go decision with supporting metrics. CEO approves.
 
 ---
@@ -1096,15 +1092,13 @@ Assigned to: Security Engineer
 
 ---
 
-### 5.4 Feedback Collection
+### 5.4 Feedback Collection — MOVED TO PHASE 2
 
-**Assigned to:** Engineering Manager → Senior Engineer B
-**Priority:** High
+~~**Assigned to:** Engineering Manager → Senior Engineer B~~
 
-- Track accept/dismiss/ignore signals per finding
-- Store per fingerprint for FP rate measurement
-- Future: use acceptance data to tune confidence thresholds per repo
-- Acceptance: Feedback signals collected and queryable.
+**Moved to Issue 2.8.** Basic feedback collection (accept/reject slash commands + thread resolution mapping) is now in Phase 2 because Bet A validation depends on it.
+
+**Phase 5 expansion:** Use accumulated acceptance data to tune confidence thresholds per repo. Build feedback dashboard for customers. This is the learning flywheel — but the basic signal collection happens in Phase 2.
 
 ---
 
