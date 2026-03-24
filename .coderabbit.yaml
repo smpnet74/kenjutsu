@@ -22,7 +22,7 @@ enable_free_tier: true
 # =============================================================================
 
 reviews:
-  profile: "chill"
+  profile: "assertive"
   request_changes_workflow: false
   high_level_summary: true
   high_level_summary_instructions: ""
@@ -36,9 +36,9 @@ reviews:
     Keep under 70 characters. Lowercase after the colon.
 
   review_status: true
-  review_details: false
+  review_details: true
   commit_status: true
-  fail_commit_status: false
+  fail_commit_status: true
   collapse_walkthrough: false
   changed_files_summary: true
   sequence_diagrams: true

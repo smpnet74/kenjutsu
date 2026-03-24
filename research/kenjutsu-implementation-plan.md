@@ -135,11 +135,11 @@ Sub-issues that don't depend on each other should be worked in parallel. The Eng
 
 ## Phase 1 — Foundation + Evaluation Harness
 
-**Goal:** Stand up the core infrastructure: GitHub App, webhook pipeline, diff processing, bare mirrors, trust mechanics, and an evaluation harness to measure review quality from day one.
+**Goal:** Stand up the core infrastructure: GitHub App, webhook pipeline, diff processing, bare mirrors, trust mechanics, evaluation harness, and a staging environment to test against real webhooks.
 
-**Milestone:** Receives webhooks, parses diffs, publishes placeholder reviews, measures quality baseline.
+**Milestone:** Receives webhooks, parses diffs, publishes placeholder reviews, measures quality baseline. Staging auto-deploys on merge to main.
 
-**Flow:** No gate into Phase 2. Start Phase 2 work as soon as dependencies are merged. Merge each sub-issue as it passes acceptance criteria.
+**Flow:** No gate into Phase 2. Start Phase 2 work as soon as dependencies are merged. Merge each sub-issue as it passes acceptance criteria. Phase 2 real-world evaluation depends on staging (1.11) being deployed.
 
 ---
 
@@ -455,6 +455,60 @@ Assigned to: Research Specialist
 - Document self-reflection scoring patterns
 - Ref: v3 spec Appendix A
 - Acceptance: Structured document covering prompt evolution, edge cases, config surface. Feeds into review engine prompt design in Phase 2.
+
+---
+
+### 1.11 Staging Environment
+
+**Assigned to:** Engineering Manager → DevOps Engineer
+**Priority:** High (blocks Phase 2 real-world evaluation)
+
+Deploy a staging environment so the team can test against real GitHub webhooks before Phase 2 evaluation.
+
+**Sub-issues:**
+
+**a) Register staging GitHub App**
+Assigned to: DevOps Engineer
+- Register a separate GitHub App for staging (not the future production App)
+- Permissions: `pull_requests: write`, `checks: write`, `contents: read`, `metadata: read`
+- Webhook URL: `https://staging.kenjutsu.dev/webhook` (or equivalent)
+- Install on 2-3 test repos controlled by the team
+- Store App private key and webhook secret in GitHub Environment `staging`
+- Acceptance: Staging App receives webhooks from test repos.
+
+**b) Staging deployment workflow**
+Assigned to: DevOps Engineer
+- `.github/workflows/deploy-staging.yml`: merge to main → deploy to Railway/Fly/ECS
+- Uses GitHub Environment `staging` for secrets (`DATABASE_URL`, `GITHUB_APP_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET`, LLM API keys)
+- Deployment only triggers after `ci-pass` succeeds
+- Health check: deployment waits for `/health` endpoint to return 200
+- Acceptance: Merge to main auto-deploys. Staging receives webhooks within 5 minutes of merge.
+
+**c) Staging PostgreSQL**
+Assigned to: DevOps Engineer
+- Managed PostgreSQL instance (smallest tier, Railway/Supabase/Neon)
+- Run Alembic migrations on deploy
+- Acceptance: Staging app connects to staging DB. Migrations run on deploy.
+
+**d) Staging smoke test**
+Assigned to: QA Engineer
+- After each staging deploy, trigger a PR on a test repo and verify:
+  - Webhook received
+  - Pipeline runs (or placeholder response)
+  - Check Run created on the PR
+- Can be manual initially, automated later
+- Acceptance: Staging deploy verified working after each merge to main.
+
+**Note on environments:**
+
+| Environment | Trigger | GitHub App | Database | Purpose |
+|------------|---------|-----------|----------|---------|
+| **Local dev** | `pixi run serve` | None (mock/test fixtures) | Testcontainers | Development |
+| **CI** | PR to main | None | Testcontainers | Automated testing |
+| **Staging** | Merge to main | Staging App (test repos) | Managed PostgreSQL | Real-world validation, Phase 2 evaluation |
+| **Production** (Phase 5) | Release tag (`v*`) | Production App (customer repos) | Managed PostgreSQL (backups, HA) | Customer-facing |
+
+Two separate GitHub Apps are required — staging and production. Same code, different credentials. This prevents staging bugs from affecting customer repos.
 
 ---
 
@@ -1046,7 +1100,43 @@ Assigned to: Security Engineer
 
 ---
 
-### 5.6 Documentation
+### 5.6 Production Deployment
+
+**Assigned to:** Engineering Manager → DevOps Engineer
+**Priority:** Critical
+
+**Sub-issues:**
+
+**a) Register production GitHub App**
+Assigned to: DevOps Engineer
+- Separate App from staging (different credentials, different webhook URL)
+- Production webhook URL: `https://api.kenjutsu.dev/webhook`
+- Store credentials in GitHub Environment `production` with required reviewers
+- Acceptance: Production App registered, credentials secured.
+
+**b) Production deployment workflow**
+Assigned to: DevOps Engineer
+- `.github/workflows/deploy-production.yml`: release tag (`v*`) → deploy to production
+- Uses GitHub Environment `production` (requires manual approval before deploy)
+- Run migrations, health check, rollback on failure
+- Acceptance: Tagging `v0.1.0` deploys to production after approval. Rollback works.
+
+**c) Production PostgreSQL**
+Assigned to: DevOps Engineer
+- Managed PostgreSQL with automated backups, point-in-time recovery
+- Separate from staging — no shared data
+- Acceptance: Production DB provisioned, backups verified, connection tested.
+
+**d) Production monitoring**
+Assigned to: DevOps Engineer
+- Health check monitoring (uptime)
+- Error alerting (webhook failures, LLM errors, publishing failures)
+- Cost tracking per tenant
+- Acceptance: Alerts fire on test failures. Dashboard shows key metrics.
+
+---
+
+### 5.7 Documentation
 
 **Assigned to:** Engineering Manager → Technical Writer
 **Priority:** High

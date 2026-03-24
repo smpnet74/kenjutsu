@@ -1,0 +1,24 @@
+# Kenjutsu CODEOWNERS
+#
+# These paths require review from the specified owners.
+# GitHub enforces this via branch protection rules.
+
+# CI and infrastructure — changes here are production logic
+/.github/CODEOWNERS     @smpnet74
+.github/workflows/**    @smpnet74
+Dockerfile*             @smpnet74
+
+# Security-sensitive paths
+kenjutsu/github/**      @smpnet74
+kenjutsu/pipeline/**    @smpnet74
+kenjutsu/review/**      @smpnet74
+kenjutsu/db/**          @smpnet74
+kenjutsu/server/**      @smpnet74
+
+# Dependency lockfiles — supply chain
+pixi.lock               @smpnet74
+pyproject.toml          @smpnet74
+
+# Product invariants
+AGENTS.md               @smpnet74
+.coderabbit.yaml        @smpnet74
