@@ -179,7 +179,8 @@ def postgres_url():
         yield pg.get_connection_url()
 
 # Phase 3 addition — just add another fixture
-from testcontainers.generic import DockerContainer
+from testcontainers.core.container import DockerContainer
+from testcontainers.core.waiting_utils import wait_for_logs
 
 @pytest.fixture(scope="session")
 def surrealdb_url():
@@ -187,7 +188,7 @@ def surrealdb_url():
     with DockerContainer("surrealdb/surrealdb:v2") \
         .with_exposed_ports(8000) \
         .with_command("start --user root --pass root") as surreal:
-        surreal.wait_for_logs("Started web server")
+        wait_for_logs(surreal, "Started web server")
         host = surreal.get_container_host_ip()
         port = surreal.get_exposed_port(8000)
         yield f"ws://{host}:{port}"

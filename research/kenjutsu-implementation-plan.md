@@ -801,7 +801,7 @@ Assigned to: Chief Architect
 **a) Integration test suite**
 Assigned to: QA Engineer
 - All integration tests use Testcontainers — PostgreSQL spun up via `postgres_url` fixture in `tests/conftest.py`. No CI `services:` blocks.
-- End-to-end tests: webhook → pipeline → published review (against test GitHub repo)
+- Integration boundary tests: webhook → pipeline → publisher flow using GitHub API contract fixtures/mocks (no live GitHub dependency in CI — live smoke tests run in staging per Issue 1.11)
 - Edge cases: large PRs, binary files, empty diffs, force pushes, concurrent webhooks
 - Trust mechanic tests: sha guard, supersession, idempotent publishing, debounce
 - Acceptance: Full test suite green locally and in CI with identical behavior. Edge cases handled correctly.
