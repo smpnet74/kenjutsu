@@ -3,3 +3,11 @@ node_modules/
 dist/
 .pixi/
 .env
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+# pixi environments
+.pixi/*
+!.pixi/config.toml

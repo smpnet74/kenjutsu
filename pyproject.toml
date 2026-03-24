@@ -1,0 +1,99 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "kenjutsu"
+version = "0.1.0"
+description = "AI-powered PR review — precision over recall"
+requires-python = ">=3.12"
+license = "LicenseRef-Proprietary"
+dependencies = [
+    "fastapi>=0.115,<1",
+    "uvicorn[standard]>=0.34,<1",
+    "pydantic>=2.10,<3",
+    "httpx>=0.28,<1",
+    "jinja2>=3.1,<4",
+]
+
+# Phase 1 additions (add when implementation starts):
+# "litellm>=1.40"       — LLM abstraction (Phase 2)
+# "alembic>=1.14,<2"    — DB migrations (Phase 1)
+# "psycopg[binary]>=3.2,<4" — PostgreSQL driver (Phase 1)
+# "sqlalchemy>=2.0,<3"  — ORM (Phase 1)
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3,<9",
+    "pytest-asyncio>=0.24,<1",
+    "pytest-cov>=6.0,<7",
+    "ruff>=0.9,<1",
+    "pyright>=1.1,<2",
+    "bandit>=1.8,<2",
+    "pip-audit>=2.7,<3",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "S",    # flake8-bandit
+    "T20",  # flake8-print
+    "SIM",  # flake8-simplify
+    "TCH",  # flake8-type-checking
+    "RUF",  # ruff-specific
+]
+ignore = [
+    "S101",  # assert is fine in tests
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S106"]
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+reportMissingImports = true
+reportMissingTypeStubs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.bandit]
+exclude_dirs = ["tests"]
+skips = ["B101"]
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["osx-arm64"]
+
+[tool.pixi.pypi-dependencies]
+kenjutsu = { path = ".", editable = true }
+
+[tool.pixi.environments]
+default = { solve-group = "default" }
+dev = { features = ["dev"], solve-group = "default" }
+
+[tool.pixi.tasks]
+lint = "ruff check . && ruff format --check ."
+format = "ruff format ."
+typecheck = "pyright kenjutsu/"
+test = "pytest tests/unit/ -v --tb=short -x"
+test-integration = "pytest tests/integration/ -v --tb=short -x"
+test-all = "pytest tests/ -v --tb=short --cov=kenjutsu --cov-report=term-missing"
+security = "bandit -r kenjutsu/ -ll"
+ci = { cmd = "echo 'All gates passed'", depends-on = ["lint", "typecheck", "test", "security"] }
+serve = "uvicorn kenjutsu.server:app --reload --port 8000"
+
+[tool.pixi.dependencies]
+python = ">=3.12,<3.13"
