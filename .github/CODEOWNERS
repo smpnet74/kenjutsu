@@ -14,6 +14,10 @@ kenjutsu/review/**      @smpnet74
 kenjutsu/db/**          @smpnet74
 kenjutsu/server/**      @smpnet74
 
+# Dependency lockfiles — supply chain
+pixi.lock               @smpnet74
+pyproject.toml          @smpnet74
+
 # Product invariants
 AGENTS.md               @smpnet74
 .coderabbit.yaml        @smpnet74
