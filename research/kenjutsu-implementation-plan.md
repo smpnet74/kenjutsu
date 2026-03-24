@@ -19,7 +19,7 @@
 | Component | Status | Location |
 |-----------|--------|----------|
 | Pixi workspace (Python 3.12, conda-forge) | Done | `pyproject.toml`, `pixi.lock` |
-| 7-gate CI pipeline with path filtering | Done | `.github/workflows/ci.yml` |
+| CI pipeline (7 quality gates + ci-pass aggregate) with path filtering | Done | `.github/workflows/ci.yml` |
 | CodeRabbit config (15 path instructions, 3 custom checks) | Done | `.coderabbit.yaml` |
 | FastAPI entry point with `/health` endpoint | Done | `kenjutsu/app.py` |
 | Finding model with 5-dimension signal taxonomy | Done | `kenjutsu/models/findings.py` |
@@ -34,7 +34,7 @@
 
 The CodeRabbit config has path-specific review instructions for each of these modules. **New code must go in the matching directory** so CodeRabbit applies the correct review guidance.
 
-```
+```text
 kenjutsu/
   app.py              # FastAPI entry point (exists)
   models/
@@ -75,7 +75,7 @@ Non-code PRs (research/, docs/, .md files) skip heavy gates automatically.
 
 ### Pixi tasks (use these, not raw commands)
 
-```
+```bash
 pixi run -e dev lint          # ruff check + format check
 pixi run -e dev format        # auto-format
 pixi run -e dev typecheck     # pyright
@@ -170,7 +170,7 @@ Assigned to: Senior Engineer A (Backend)
 
 **c) CI pipeline — COMPLETE**
 ~~Assigned to: DevOps Engineer~~
-- ~~7-gate CI: lint (ruff), type check (pyright), security (bandit + pip-audit), unit tests, integration tests (PostgreSQL), coverage, Docker build~~
+- ~~CI: 7 quality gates (lint, type check, security, unit tests, integration tests, coverage, Docker build) + ci-pass aggregate~~
 - ~~Path filtering: non-code PRs skip heavy gates~~
 - ~~CodeRabbit config with 15 path instructions and 3 custom pre-merge checks~~
 - ~~Branch protection: require ci-pass job~~

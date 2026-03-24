@@ -67,7 +67,7 @@ Greptile's data shows 12% cosine similarity improvement for NL descriptions vs r
 
 Kenjutsu operates as three loosely coupled subsystems plus an asynchronous index:
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                     KENJUTSU SYSTEM                         │
 │                                                             │
@@ -218,7 +218,7 @@ For complex PRs, architectural changes, or security-sensitive reviews:
 Jinja2 templates with Pydantic schema-driven structured output. This pattern (embedding output schemas in prompts, parsing structured YAML/JSON responses) is PR-Agent's most valuable contribution. We reimplement the pattern, not the code.
 
 **Template structure:**
-```
+```text
 System: Role definition + output schema (Pydantic model)
 Context: Codebase summary + retrieved context chunks (cached via prompt caching)
 Diff: Formatted hunks with line numbers
@@ -262,7 +262,7 @@ This metadata enables compliance audit trails from day one. When EU AI Act (Augu
 
 Add specialized agents only when we have evidence from MVP usage that specialization improves precision for specific finding categories:
 
-```
+```text
                     ┌─────────────────┐
                     │  Review Router  │
                     │  (Orchestrator) │
@@ -296,7 +296,7 @@ Add specialized agents only when we have evidence from MVP usage that specializa
 
 ### Happy Path: PR Review
 
-```
+```text
 1. GitHub sends pull_request webhook (opened/synchronize)
    └→ Webhook server verifies HMAC-SHA256 signature
    └→ Debounce (30-60s for synchronize events)

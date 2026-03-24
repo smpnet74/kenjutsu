@@ -164,7 +164,7 @@ A single embedding model cannot optimally serve all of Kenjutsu's retrieval need
 
 ### Recommended Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                     INDEXING PIPELINE                         │
 │                                                               │
@@ -292,7 +292,7 @@ Replacing Voyage-code-3 with Nomic Embed Code (self-hosted) eliminates embedding
 
 ### Recommended Multi-Model Decision Points
 
-```
+```text
 MVP Launch
   └── Is retrieval quality sufficient?
        ├── YES → Stay single-model

@@ -20,7 +20,7 @@ PR-Agent (by Qodo, formerly CodiumAI) is the most relevant open-source reference
 
 The codebase lives at `github.com/qodo-ai/pr-agent`. Pure Python package (~25,600 LOC across 113 files, 41 test files).
 
-```
+```text
 pr_agent/
   agent/           Command dispatcher (PRAgent class, command2class map)
   algo/            Core algorithms: diff processing, token handling, LLM calls
@@ -51,7 +51,7 @@ pr_agent/
 
 ### Full Flow: Trigger to Comment
 
-```
+```text
 Webhook/Action → Event Ingestion → Repo Config Merge → Command Routing
 → Tool Init → Diff Generation → Token Budget Check → Prompt Rendering
 → LLM Call (with fallback) → YAML Parsing → Markdown Conversion → Publish
@@ -81,7 +81,7 @@ Webhook/Action → Event Ingestion → Repo Config Merge → Command Routing
 
 PR-Agent uses a custom "decoupled hunk" format, not standard unified diff. The function `decouple_and_convert_to_hunks_with_lines_numbers()` transforms standard `@@` hunks into separate new/old views:
 
-```
+```diff
 ## File: 'src/file.py'
 @@ -881,10 +881,12 @@
 __new hunk__

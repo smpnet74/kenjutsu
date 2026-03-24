@@ -10,7 +10,7 @@
 Parent-child retrieval separates the retrieval unit from the context unit. You retrieve at a fine-grained level (child chunks) for precision, but return a larger context (parent chunk/document) for completeness. This solves the fundamental tension in chunking: small chunks are more precise for retrieval but lack context for understanding; large chunks provide context but dilute retrieval signals.
 
 **Architecture:**
-```
+```text
 Document (file)
 ├── Parent chunk (class/module, ~1000-2000 tokens)
 │   ├── Child chunk (function, ~200-500 tokens)

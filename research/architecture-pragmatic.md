@@ -59,7 +59,7 @@ The regulatory tailwind (EU AI Act, Colorado AI Act) is real, but the timeline i
 
 Kenjutsu is a linear processing pipeline with an optional asynchronous index. In a pragmatic architecture, simplicity is a feature — fewer moving parts means fewer failure modes.
 
-```
+```text
 GitHub Webhook
        │
        ▼
@@ -236,7 +236,7 @@ One generalist review agent for MVP. Multi-agent orchestration is the long-term 
 
 Add specialized agents only when MVP review data shows measurable quality gaps by domain:
 
-```
+```text
 Coordinator Agent → routes to specialists based on file types / change patterns
 ├── Security Agent (if security gap demonstrated)
 ├── Performance Agent (if performance gap demonstrated)
@@ -251,7 +251,7 @@ Coordinator Agent → routes to specialists based on file types / change pattern
 
 ### Happy Path (Typical PR: 10 files, 500 lines)
 
-```
+```text
 T+0s     GitHub webhook (pull_request opened)
 T+0.1s   HMAC verify → ack 200 → enqueue async task
 T+0.5s   Fetch PR metadata, diff, file list
