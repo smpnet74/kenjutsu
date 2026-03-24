@@ -1,589 +1,470 @@
 # Architecture Proposal: Pragmatic — Best Possible Given Current Knowledge
 
-**Date:** 2026-03-23
+**Date:** 2026-03-24 (v2 — revised per board feedback)
 **Author:** Chief Architect
 **Issue:** DEM-118
 **Parent:** DEM-117
-**Lens:** Pragmatic — proven patterns, established tools, realistic implementation paths, high confidence of success
 
 ---
 
-## Executive Summary
+## Design Philosophy
 
-Kenjutsu is an AI-powered code review system positioned as **high-signal, governance-aware, and multi-agent-native**. This proposal defines the architecture that gives us the highest probability of shipping a useful product based on everything we know today. Every choice here favors proven technology, well-understood patterns, and incremental buildability over novelty.
+This architecture optimizes for **highest probability of shipping a useful product.** Every choice favors proven technology, well-understood patterns, and incremental buildability over novelty. The goal is not to push boundaries — it is to deliver a code review tool that developers actually want to use, built on foundations we are confident will work.
 
-The core insight from our research: **context depth is the primary quality differentiator** (82% vs 44% bug detection), but **false positive rate is the primary adoption gate**. This architecture resolves that tension through a layered context pipeline that starts cheap and goes deep only when warranted, combined with a self-reflection pass that filters findings before they reach the developer.
-
-**Key decisions:**
-1. Build from scratch (hybrid study approach) — AGPL kills the PR-Agent fork path
-2. Python stack with FastAPI — best LLM ecosystem, fastest path to MVP
-3. GitHub App as primary integration — rate limits, Checks API, bot identity
-4. Layered context pipeline — cheap heuristics always, semantic retrieval when needed
-5. Self-reflection scoring for false positive suppression
-6. Paperclip-native multi-agent orchestration as the long-term differentiator
+The pragmatic lens means:
+- Choose boring technology when it works
+- Ship the simplest thing that solves the problem, then iterate
+- Never add complexity to solve problems we don't yet have
+- Every component earns its place by solving a concrete, immediate need
 
 ---
 
-## 1. System Architecture
+## Assumptions We Challenge
 
-### High-Level Data Flow
+### 1. "Build from scratch is clearly the right path"
+
+The research unanimously recommends building from scratch over forking PR-Agent. The reasoning is sound (AGPL blocks commercial use, v0.29 fork carries significant tech debt), but we should acknowledge what we give up: PR-Agent has years of prompt engineering iteration, real-world edge case handling, and community-contributed improvements. Building from scratch means rediscovering these lessons empirically. Budget for it — the 10-14 week estimate is optimistic if prompt tuning takes the 3-4 weeks the research predicts.
+
+**Our position:** Build from scratch, but study PR-Agent more deeply than the research suggests. Don't just study "strategies" — systematically catalog their prompt evolution (git history of prompt TOML files), their edge case handling (issues and bug fixes), and their configuration surface area. This catalog becomes our test case library.
+
+### 2. "Python is the obvious language choice"
+
+Every research document assumes Python. The rationale (best LLM ecosystem, tree-sitter bindings, FastAPI) is valid, but consider: the GitHub platform ecosystem is JavaScript/TypeScript-native. GitHub Actions are Node.js. VS Code extensions are TypeScript. GitHub's own Copilot code review is likely TypeScript. By choosing Python, we optimize for the LLM ecosystem but create friction with the platform ecosystem. The DEM-114 evaluation notes that Mastra (TypeScript) has strong RAG capabilities we cannot use.
+
+**Our position:** Python is still correct for MVP. But this is a genuine trade-off, not an obvious choice. Plan for TypeScript components post-MVP (GitHub Action wrapper, IDE extensions) and ensure the core review engine exposes clean APIs that TypeScript clients can consume.
+
+### 3. "Layered context is sufficient — we don't need full indexing from day one"
+
+The tiered approach (Layer 1 heuristics always, Layer 2 embeddings when needed) is pragmatically sound. But we should be honest: Layer 1 heuristics alone will produce reviews that are meaningfully shallower than Greptile or CodeRabbit. Import graph traversal and co-change analysis catch direct dependencies, but miss: cross-cutting concerns, convention violations in unmodified files, duplicate code elsewhere, and architectural pattern mismatches. These are exactly the findings that distinguish AI review from a linter.
+
+**Our position:** Ship with Layer 1, but treat Layer 2 as "fast follow" (weeks 13-16), not "someday." The competitive gap between Layer 1 and full indexing is real and matters for positioning.
+
+### 4. "Self-reflection reduces false positives to acceptable levels"
+
+The two-pass approach (generate findings, then score them) is proven by PR-Agent's `/improve` tool. But the research may overstate its effectiveness. Self-reflection catches obvious false positives (wrong line numbers, findings contradicted by nearby context) but is less effective at catching subtle false positives (findings that are technically correct but not useful, or findings that miss team-specific conventions). The hard part of FP reduction is calibrating to what a specific team considers noise — and that requires data we won't have at launch.
+
+**Our position:** Self-reflection is necessary but not sufficient. Target <10% FP for MVP (realistic), not <5% (aspirational). Build the feedback collection mechanism (accept/reject signals) from day one, even if the learning system comes later.
+
+### 5. "The governance opportunity justifies architectural investment"
+
+The regulatory tailwind (EU AI Act, Colorado AI Act) is real, but the timeline is uncertain. Regulations may be delayed, weakened, or interpreted differently than expected. Building a full governance engine for a market that may not materialize for 12-18 months is a bet, not a certainty.
+
+**Our position:** Add governance metadata to findings (cheap: agent ID, model, confidence, timestamp). Defer the governance dashboard, policy-as-code engine, and compliance reporting until there is customer demand or regulatory clarity. Metadata-in, dashboard-later is the pragmatic path.
+
+---
+
+## 1. Core Architecture
+
+### System Overview
+
+Kenjutsu is a linear processing pipeline with an optional asynchronous index. In a pragmatic architecture, simplicity is a feature — fewer moving parts means fewer failure modes.
 
 ```
-                         ┌─────────────────────────────┐
-                         │       GitHub / GitLab        │
-                         │    (PR events, webhooks)     │
-                         └──────────┬──────────────────-┘
-                                    │ webhook POST
-                                    ▼
-                         ┌──────────────────────┐
-                         │    Webhook Server     │
-                         │  (FastAPI + HMAC)     │
-                         │  Signature verify     │
-                         │  Event routing        │
-                         │  Ack < 1s, enqueue    │
-                         └──────────┬────────────┘
-                                    │ async task
-                                    ▼
-                         ┌──────────────────────┐
-                         │   PR Processor        │
-                         │  Diff fetching        │
-                         │  Token budgeting      │
-                         │  Hunk extension       │
-                         │  Chunking             │
-                         └──────────┬────────────┘
-                                    │
-                                    ▼
-                         ┌──────────────────────┐
-                         │  Context Retriever    │
-                         │  L1: Heuristics       │◄── always (free)
-                         │  L2: Semantic search  │◄── when needed
-                         │  L3: Agentic search   │◄── complex PRs only
-                         └──────────┬────────────┘
-                                    │
-                                    ▼
-                         ┌──────────────────────┐
-                         │   Review Engine       │
-                         │  Prompt rendering     │
-                         │  LLM call + fallback  │
-                         │  Response parsing     │
-                         │  Self-reflection pass  │
-                         │  Severity scoring     │
-                         └──────────┬────────────┘
-                                    │
-                                    ▼
-                         ┌──────────────────────┐
-                         │    Publisher          │
-                         │  Pending review →     │
-                         │    submit atomically  │
-                         │  Check Run annotations│
-                         │  Persistent comments  │
-                         └──────────┬────────────┘
-                                    │
-                                    ▼
-                         ┌──────────────────────┐
-                         │   GitHub / GitLab     │
-                         │  (PR review, checks)  │
-                         └──────────────────────-┘
+GitHub Webhook
+       │
+       ▼
+┌──────────────┐
+│ Webhook      │  FastAPI server, HMAC-SHA256 verification
+│ Server       │  Event routing, async task dispatch
+└──────┬───────┘
+       │
+       ▼
+┌──────────────┐
+│ PR Processor │  Diff fetching, hunk formatting
+│              │  tree-sitter context extension
+│              │  Token-aware chunking
+└──────┬───────┘
+       │
+       ▼
+┌──────────────┐
+│ Context      │  L1: Heuristics (always, free)
+│ Retriever    │  L2: Semantic search (when needed, via LlamaIndex)
+└──────┬───────┘
+       │
+       ▼
+┌──────────────┐
+│ Review       │  Prompt rendering (Jinja2 + Pydantic)
+│ Engine       │  LLM call via LiteLLM (Claude Sonnet 4.5)
+│              │  Self-reflection pass → filter FPs
+│              │  Governance metadata attachment
+└──────┬───────┘
+       │
+       ▼
+┌──────────────┐
+│ Publisher    │  Pending review → submit atomically
+│              │  Check Run with annotations
+└──────────────┘
 ```
 
-### Design Principles
+### Why a Pipeline (Not Microservices)
 
-1. **Precision over recall.** Better to surface 5 high-confidence findings than 20 noisy ones. The cAST research confirms: higher precision correlates with better outcomes more than recall.
-2. **Cheap first, expensive when justified.** Every PR gets free heuristic context. Semantic search activates only when the diff touches shared code, APIs, or cross-cutting concerns.
-3. **Fail gracefully, never silently.** If context retrieval fails, review proceeds with reduced context — not a crash. If the LLM call fails, the fallback chain engages. If everything fails, a clear error comment is posted on the PR.
-4. **Batch and buffer.** GitHub's content creation rate limit (80/min, 500/hr) is the binding constraint. All output flows through the pending review pattern: accumulate all comments, submit once.
-5. **Stateless processing, stateful indexing.** Each review is a self-contained pipeline invocation. The codebase index (post-MVP) is the only persistent state.
+A pragmatic architecture is a single-process pipeline for MVP. Reasons:
+- **Debuggable.** When a review is wrong, trace the full path in one process.
+- **Deployable.** One container. No service mesh, no inter-service auth, no distributed tracing needed on day one.
+- **Testable.** Integration tests run the full pipeline in-process.
+- **Evolvable.** If we need to extract a service later (e.g., the Index subsystem), clean interfaces make that possible. But we don't pay the complexity cost until we need it.
+
+The risk of a single-process pipeline is that it doesn't scale horizontally. For MVP, this doesn't matter — a single container handles hundreds of PRs per day. When scale demands it (>1000 PRs/day), extract the review engine as a worker pool behind Redis.
 
 ---
 
-## 2. Component Architecture
+## 2. Key Components
 
 ### 2.1 Webhook Server
 
-**Technology:** FastAPI (async, high-performance)
+**Technology:** FastAPI (async, well-documented, community-standard for Python APIs)
 
-**Responsibilities:**
-- Receive GitHub/GitLab webhook POST events
-- HMAC-SHA256 signature verification (mandatory from day one — PR-Agent's CVEs demonstrate the consequences of skipping this)
+- HMAC-SHA256 signature verification (mandatory — PR-Agent's CVEs demonstrate the consequences of skipping this)
 - Event routing: `pull_request` (opened, synchronize, reopened), `issue_comment` (slash commands)
-- Immediate acknowledgment (< 1 second) with async background dispatch
-- Health check and readiness endpoints
-- Request-scoped configuration (no global state — explicit config injection, not Dynaconf)
-
-**Key decision: No global state.** PR-Agent's 200+ `get_settings()` call sites create hidden coupling that resists modification. Kenjutsu passes configuration explicitly through the pipeline via dependency injection. Every function declares what it needs.
-
-**Estimated complexity:** 500-800 lines.
+- Immediate acknowledgment (< 1 second) with background task dispatch
+- Debounce on `synchronize` events (30-60 second wait for additional commits)
+- Request-scoped configuration via Pydantic Settings (no global state, no Dynaconf)
 
 ### 2.2 Git Platform Provider
 
-**Technology:** PyGithub for GitHub REST API, or direct httpx for lightweight calls. Abstract interface for future GitLab/Bitbucket support.
+Clean `GitPlatformProvider` ABC with consistent return types. GitHub-only for MVP; the abstraction costs nothing and prevents a rewrite when GitLab is added.
 
-**Interface design:** A clean `GitProvider` abstract base class with consistent return types. PR-Agent's provider interface has inconsistent signatures across implementations (documented in their issue #2259). We design this correctly from the start:
+**GitHub App authentication:** JWT (RS256, 10-min lifetime) → installation token (1-hour expiry). Proactive refresh. Minimum permissions: `pull_requests: write`, `checks: write`, `contents: read`, `metadata: read`.
 
-```
-GitProvider (ABC)
-├── get_pr_metadata() → PRMetadata
-├── get_diff_files() → list[FilePatch]
-├── get_file_content(path, ref) → str
-├── create_review(comments, body, event) → ReviewResult
-├── create_check_run(annotations, summary) → CheckResult
-├── get_pr_comments() → list[Comment]
-└── add_reaction(comment_id, reaction) → None
-```
-
-**GitHub App authentication flow:**
-1. Register GitHub App with minimum permissions: `pull_requests: write`, `checks: write`, `contents: read`, `metadata: read`
-2. JWT generation (RS256, 10-min lifetime) → installation token exchange (1-hour expiry)
-3. Proactive token refresh before expiry
-4. Scoped tokens (narrowed to specific repos when possible)
-
-**Rate limit strategy:**
-- Monitor `x-ratelimit-remaining` headers on every response
-- Throttle proactively when approaching limits
-- Batch all review comments into a single pending review → submit
-- Use Check Run annotations (50 per API call) for high-volume findings
-- Debounce on `synchronize` events: wait 30-60 seconds before starting review (more commits may follow)
-
-**Estimated complexity:** 1,000-1,500 lines.
+**Rate limit strategy:** Pending review pattern (batch all comments, submit once). Check Run annotations (50 per API call). Debounce. Monitor `x-ratelimit-remaining` headers proactively.
 
 ### 2.3 Diff Processor
 
-**Technology:** Custom parser + tree-sitter (py-tree-sitter) for AST-aware context extension
+Studied from PR-Agent, reimplemented clean:
 
-**Responsibilities:**
-- Parse unified diff into structured `FilePatch` objects
-- Convert to decoupled hunk format (separate new/old views with line numbers) — this format, proven by PR-Agent, helps the LLM reason about change positioning
-- Dynamic context extension: extend hunks to enclosing function/class boundaries via tree-sitter AST queries
-- Token-aware chunking: greedy fill within budget, language-prioritized ordering (main language first)
-- Large diff strategies:
-  - **Clip** (default): truncate individual large patches at function boundaries
-  - **Multi-patch**: split into multiple chunks, each gets a separate LLM call (up to 3 parallel)
-  - **Summary fallback**: files that don't fit listed by name only
-- Deletion omission: strip deletion-only hunks, list deleted files by name
-- Token counting via tiktoken (OpenAI-compatible models) and Anthropic token counting API (Claude models)
-
-**Key decision: Function-level chunking via AST.** Research shows function-level isolation scores 0.768 similarity vs 0.739 for full file with the correct function buried in noise. A 7% improvement in retrieval quality is significant at scale. Each chunk includes the class header + imports for context.
-
-**Key decision: No 32K default cap.** PR-Agent's `max_model_tokens = 32000` default means most deployments use a fraction of available context. Kenjutsu reads the actual model context window and uses it, with a configurable safety margin.
-
-**Estimated complexity:** 1,500-2,000 lines. This is core algorithmic work.
+1. Parse unified diff into structured `FilePatch` objects
+2. Convert to decoupled hunk format (separate new/old views with line numbers)
+3. Extend hunks to enclosing function/class via tree-sitter AST queries
+4. Token-aware chunking: greedy fill within model limits (actual limits, not PR-Agent's artificial 32K cap)
+5. Large diff handling: multi-patch mode (parallel LLM calls, up to 3 chunks)
+6. Deletion omission: strip deletion-only hunks, list deleted files by name
 
 ### 2.4 Context Retriever
 
-The layered context pipeline is Kenjutsu's most important architectural decision. It resolves the tension between context depth (needed for quality) and noise/cost (the adoption killer).
+#### Layer 1 — Always On (Free, MVP)
 
-#### Layer 1 — Always On (Free)
-
-Available from MVP. These are heuristic, deterministic, and cost nothing:
-
-| Signal | Method | What It Finds |
+| Signal | Method | Cost |
 |---|---|---|
-| Diff extension | tree-sitter AST queries | Enclosing function/class for each changed hunk |
-| Import graph | tree-sitter + static analysis | Direct dependencies of changed files |
-| Co-change analysis | `git log` mining | Files that historically change together |
-| Test matching | Path heuristics (`*_test.go` ↔ `*.go`) | Related test files |
-| Type definitions | Import graph + AST | Type/interface definitions used by changed code |
+| Enclosing scope | tree-sitter: expand hunks to function/class boundaries | Free |
+| Import graph | tree-sitter: extract imports, resolve to files | Free |
+| Co-change files | `git log` mining: historically coupled files | Free |
+| Test file matching | Path heuristics: `foo.py` ↔ `test_foo.py` | Free |
+| Type definitions | tree-sitter: resolve type annotations to definitions | Free |
 
-**Inflection point:** For PRs touching 1-3 files in well-structured codebases, Layer 1 alone may be sufficient. The system should measure and report when it believes deeper context would improve review quality.
+#### Layer 2 — On Demand (Medium Cost, Post-MVP Fast Follow)
 
-#### Layer 2 — On Demand (Medium Cost)
+**Framework: LlamaIndex** (per DEM-114 evaluation). LlamaIndex provides the retrieval infrastructure; we provide the code-specific components.
 
-Post-MVP. Activates when the diff touches shared libraries, APIs, or cross-cutting concerns:
-
-| Signal | Method | What It Finds |
+| Kenjutsu Component | LlamaIndex Extension | Custom or Built-in |
 |---|---|---|
-| Semantic search | Voyage-code-3 embeddings (1024 dims) + BM25 hybrid | Semantically related code across the codebase |
-| Reranking | Cross-encoder (ms-marco-MiniLM or Cohere Rerank v3) | Top 10 most relevant chunks from 50-100 candidates |
-| Historical reviews | Embedding search on past review comments | Relevant precedent decisions |
+| Function-level code chunking | Custom `CodeNodeParser` (tree-sitter) | Custom |
+| Import graph retrieval | Custom `ImportGraphRetriever` | Custom |
+| Co-change retrieval | Custom `CoChangeRetriever` | Custom |
+| Test file matching | Custom `TestFileRetriever` | Custom |
+| Semantic code search | `VectorIndexRetriever` + Voyage-code-3 | Built-in |
+| Keyword search | `BM25Retriever` | Built-in |
+| Hybrid search | `QueryFusionRetriever` (RRF) | Built-in |
+| Reranking | `CohereRerank` | Built-in |
+| Query routing | `RouterQueryEngine` | Built-in |
 
-**Embedding strategy:**
-- Embed natural language descriptions of code, not raw code (Greptile's 12% retrieval improvement is too significant to ignore)
-- Tree-sitter AST → function-level chunks → LLM generates natural language summary → Voyage-code-3 embeds the summary
-- Hierarchical indexing: summary tier (file/module) for coarse filtering, detail tier (function) for precise retrieval
-- Incremental indexing: hash each chunk's content, re-embed only changed chunks (Cursor's Merkle tree approach achieves 90%+ cost reduction)
+**Insulation layer:** Wrap all LlamaIndex interfaces behind our own abstractions. If LlamaIndex API churn or commercial pressure becomes untenable, Haystack (Apache-2.0) is the migration target.
 
-**Retrieval formula:** Hybrid BM25 + vector, weighted 0.3 keyword / 0.7 vector (adjustable). Code may benefit from higher keyword weight due to identifier significance. Retrieve 50-100 candidates, rerank to top 10 via cross-encoder.
-
-**Key decision: Voyage-code-3 at 1024 dimensions.** Achieves 92.28% of full 2048-dim performance while outperforming OpenAI text-embedding-3-large at 3072 dims. Better quality at 1/3 the storage. Binary quantization available for 32x additional storage reduction.
-
-#### Layer 3 — Complex PRs Only (Higher Cost)
-
-Future. For architectural changes, unfamiliar codebases, and PRs flagged as high-complexity:
-
-| Signal | Method | What It Finds |
-|---|---|---|
-| Multi-hop dependency tracing | Agentic search (LLM-guided graph traversal) | Transitive dependencies, indirect impacts |
-| Pattern matching | AST-grep with YAML rules | Security patterns, API misuse, resource management violations |
-| Cross-service analysis | Multi-repo index queries | Impact on dependent services |
-
-#### Context Decision Logic
-
-```
-For each PR:
-  1. Always run Layer 1 (free, < 2 seconds)
-  2. Score PR complexity:
-     - Files changed > 5, OR
-     - Touches shared library / API / interface, OR
-     - Cross-directory changes, OR
-     - Layer 1 context insufficient (few imports, no co-changes)
-  3. If complexity score > threshold → activate Layer 2
-  4. If PR touches security-sensitive code OR is flagged for deep review → activate Layer 3
-```
+**Embedding strategy:** Voyage-code-3 at 1024 dimensions. Embed natural language descriptions of code (12% retrieval improvement per Greptile data). Incremental indexing with content-hash caching.
 
 ### 2.5 Review Engine
 
-**Technology:** Jinja2 templates, Pydantic for structured output schemas, LiteLLM for multi-provider support
+**Two-pass review:**
 
-**Two-pass review architecture:**
-
-**Pass 1 — Generate findings:**
-- Render Jinja2 prompt template with: system instructions, diff (decoupled hunk format), retrieved context, configuration rules
-- LLM call via LiteLLM (primary: Claude Sonnet 4.5, fallback: GPT-4o)
-- Parse structured response (YAML/JSON with Pydantic validation)
-- Each finding includes: file, line range, severity (critical/warning/info), category, description, suggested fix (optional), confidence score
-
-**Pass 2 — Self-reflection (false positive filter):**
-- Second LLM call scores each finding 0-10 on: correctness, relevance, actionability
-- Validates line number accuracy against the actual diff
-- Filters findings below configurable threshold (default: score >= 7)
-- Findings scoring >= 9 marked as "high confidence"
-
-**Key decision: Self-reflection is non-negotiable.** PR-Agent's `/improve` tool uses this pattern (generate → score → filter) and it measurably reduces noise. The second call is cheaper (smaller context: just findings + relevant diff chunks) and worth the latency.
-
-**Prompt engineering strategy:**
-- Study PR-Agent's prompt structures (structured output approach, Pydantic models in prompts, YAML format) — techniques are not copyrightable
-- Jinja2 templates allow conditional sections based on context availability
-- Separate prompt templates per review focus: general, security, performance, architecture
-- Prompt caching (Claude and OpenAI both support this) reduces input costs up to 90% for repeated system prompts — critical for cost control
-
-**Token budget allocation:**
-
-| Segment | Budget % | Notes |
-|---|---|---|
-| System prompt + instructions | 5% | Prompt-cached across reviews |
-| Retrieved context (Layer 1+2) | 30% | Reranked top-k from hybrid search |
-| Diff (formatted) | 50% | The actual PR changes with context extension |
-| Output buffer | 15% | Generation headroom |
+1. **Generation pass:** Jinja2 prompt template → LLM call (Claude Sonnet 4.5 via LiteLLM) → Pydantic-validated structured findings with severity (critical/warning/info), confidence, evidence
+2. **Self-reflection pass:** Second LLM call scores each finding on correctness, relevance, actionability. Filters below threshold (default: score >= 7). Validates line numbers against diff.
 
 **Model selection:**
-- **Standard review:** Claude Sonnet 4.5 ($0.22-0.35 per typical PR). Best cost/quality ratio. 200K context window.
-- **Self-reflection pass:** Same model or cheaper. Scoring findings doesn't need frontier reasoning.
-- **Complex PR deep review:** Claude Opus 4.6 ($1.10-1.75 per typical PR). Reserved for high-complexity PRs or security-critical code.
-- **Fallback:** GPT-4o. Different model family reduces correlated failures.
+- Standard review: Claude Sonnet 4.5 ($0.22-0.35/PR, 200K context)
+- Self-reflection: Same model or cheaper
+- Fallback: GPT-4o (different model family, reduces correlated failures)
+- Deep analysis (post-MVP): Claude Opus 4.6 for security-critical or complex PRs
 
-**Estimated complexity:** 1,500-2,000 lines. Prompt engineering iteration is the long pole.
+**Prompt caching:** Non-negotiable for cost control. System prompt + codebase summary cached across reviews. Up to 90% input cost reduction.
+
+**Governance metadata:** Every finding carries: agent ID, model used, context tier, confidence score, timestamp. This is cheap to add now and expensive to retrofit later.
 
 ### 2.6 Publisher
 
-**Technology:** GitHub REST API via the Git Platform Provider abstraction
+**Pending review pattern:** Create PENDING review → accumulate inline comments → submit atomically. One notification to the PR author.
 
-**Publishing strategy — the pending review pattern:**
-1. Create a `PENDING` review (invisible to PR author)
-2. Accumulate all inline comments into the review
-3. Submit atomically with a summary body and `COMMENT` event
-4. Result: one notification to the PR author, not N
+**Dual output:**
+- PR Review: inline comments with severity badges, suggestion blocks for one-click apply
+- Check Run: summary status with annotations (pass/fail for branch protection)
 
-**Output format:**
-- Summary comment with severity breakdown (X critical, Y warning, Z info)
-- Inline comments on specific lines with severity badges
-- Suggestion blocks (```suggestion) for one-click apply where appropriate
-- Check Run with annotations for status integration (pass/fail in branch protection)
+**Severity presentation:** Critical (always shown) → Warning (shown by default) → Info (hidden by default). Silent by default — only comments on genuine issues.
 
-**Severity presentation:**
-- **Critical** — likely bugs, security vulnerabilities, data loss risks. Always shown.
-- **Warning** — code quality issues, potential performance problems, missing error handling. Shown by default, configurable.
-- **Info** — style suggestions, minor improvements. Hidden by default, configurable.
+### 2.7 Configuration
 
-**Key decision: Silent by default.** Kenjutsu only comments on genuine issues. Style nitpicking, formatting suggestions, and low-confidence findings are suppressed unless the team explicitly enables them. This is the single most important UX decision for adoption.
+`.kenjutsu.toml` in repo root. Zero-config defaults that work for 90% of repos.
 
-**Estimated complexity:** 600-1,000 lines.
+```toml
+[kenjutsu]
+auto_review = true
+review_on_draft = false
+severity_threshold = "warning"
 
-### 2.7 Configuration System
+[kenjutsu.context]
+tier = "auto"
 
-**Technology:** TOML (`.kenjutsu.toml` in repo root)
+[kenjutsu.ignore]
+paths = ["*.lock", "*.generated.*", "vendor/", "node_modules/"]
 
-**Design:**
-- Sensible zero-config defaults (review works immediately on install)
-- Per-tool settings: review strictness, severity thresholds, model selection
-- File/directory ignore patterns (glob + regex)
-- Team-specific rules: custom review guidelines, domain conventions
-- Explicit configuration injection — no global state, no Dynaconf
-
-**Priority order (lowest → highest):**
-1. Built-in defaults
-2. Organization-level config (via GitHub App settings)
-3. Repository `.kenjutsu.toml`
-4. PR-level overrides (slash commands in PR comments)
-
-**Estimated complexity:** 400-600 lines.
-
----
-
-## 3. Paperclip Integration (Multi-Agent Orchestration)
-
-This is Kenjutsu's long-term structural differentiator. No competitor has an agent orchestration platform.
-
-### Multi-Agent Review Architecture
-
-```
-PR Event
-    │
-    ▼
-┌──────────────┐
-│  Coordinator │  Paperclip agent: routes PR to specialist agents
-│  Agent       │  based on file types, directories, and review focus
-└──────┬───────┘
-       │ parallel dispatch
-       ├──────────────────┐──────────────────┐
-       ▼                  ▼                  ▼
-┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-│  Security    │  │ Performance  │  │ Architecture │
-│  Reviewer    │  │ Reviewer     │  │ Reviewer     │
-│  (Agent)     │  │ (Agent)      │  │ (Agent)      │
-└──────┬───────┘  └──────┬───────┘  └──────┬───────┘
-       │                  │                  │
-       └──────────┬───────┘──────────────────┘
-                  ▼
-          ┌──────────────┐
-          │  Aggregator  │  Deduplicates, resolves conflicts,
-          │  Agent       │  applies severity ranking, publishes
-          └──────────────┘
+[kenjutsu.model]
+primary = "claude-sonnet-4-5"
+fallback = "gpt-4o"
 ```
 
-**What this enables:**
-- **Specialized focus reduces false positives.** A security agent trained on OWASP patterns produces fewer irrelevant style suggestions. A performance agent doesn't comment on naming conventions.
-- **Agent provenance.** Every finding is attributable to a specific agent. Audit trail built in.
-- **Composable pipelines.** Teams configure which agents review which file types/directories. Backend team gets performance + architecture review. Frontend team gets accessibility + security review.
-- **Disagreement resolution.** When agents conflict, escalation follows Paperclip's chain of command.
-- **Budget-aware processing.** Paperclip's budget tracking prevents unbounded LLM costs. Complex PRs get more agents; simple PRs get fewer.
-- **Independent learning.** Each agent's feedback loop (accepted/rejected suggestions) improves that specialization independently.
+---
 
-**MVP approach:** Single generalist review agent. Multi-agent orchestration layers on post-MVP without changing the core pipeline — each specialist agent runs the same review engine with different prompt templates and configuration.
+## 3. Paperclip Integration
 
-### Governance Layer
+### MVP: Single Agent + Governance Metadata
 
-Paperclip integration enables governance capabilities no competitor offers:
+One generalist review agent for MVP. Multi-agent orchestration is the long-term differentiator, but it adds complexity that is unjustified until we have evidence that specialization improves quality.
 
-- **Agent provenance tracking:** Every review decision records which agent made it, which model was used, and what context was available
-- **Proportional approval workflows:** Higher-risk code (security-sensitive, data-handling, infrastructure) triggers stricter review requirements
-- **Compliance audit trails:** Full record of who generated code, who (human or agent) reviewed it, confidence levels, and approval chain
-- **Trust scoring:** PRs from AI coding agents (Cursor, Claude Code, Copilot) flagged for proportional scrutiny
+**What Paperclip provides in MVP:**
+- Agent identity on every review finding (audit trail)
+- Budget tracking (prevents unbounded LLM costs)
+- Deployment flexibility (adapter model: runs locally, in CI, or hosted)
 
-**Regulatory relevance:** EU AI Act (August 2026) and Colorado AI Act (June 2026) create regulatory demand for AI-generated code governance. This positioning is unoccupied.
+### Post-MVP: Evidence-Gated Multi-Agent
+
+Add specialized agents only when MVP review data shows measurable quality gaps by domain:
+
+```
+Coordinator Agent → routes to specialists based on file types / change patterns
+├── Security Agent (if security gap demonstrated)
+├── Performance Agent (if performance gap demonstrated)
+└── Architecture Agent (if architecture gap demonstrated)
+```
+
+**Criteria:** The general reviewer must demonstrate a measurable quality gap in a specific domain across a significant sample of real reviews.
 
 ---
 
-## 4. Technology Choices
-
-### Language: Python
-
-**Rationale:**
-- Best LLM ecosystem: LiteLLM, tiktoken, Anthropic SDK, OpenAI SDK
-- Tree-sitter bindings (py-tree-sitter) production-ready
-- FastAPI for async webhook server
-- PR-Agent (studied, not forked) is Python — learnings transfer directly
-- Fastest path to MVP
-
-**Alternative considered:** TypeScript. Closer to GitHub/VS Code ecosystem. Better for future IDE extensions. Weaker LLM library ecosystem and tree-sitter support. Revisit for IDE components post-MVP.
-
-### Key Dependencies
-
-| Library | Purpose | Rationale |
-|---|---|---|
-| FastAPI | Webhook server | Async, high-performance, well-documented |
-| LiteLLM | Multi-LLM provider | 100+ providers, unified interface, handles model quirks |
-| tiktoken | Token counting | OpenAI-compatible, fast |
-| py-tree-sitter | AST parsing | Universal parser, production-proven (Neovim, Helix, Zed) |
-| PyGithub | GitHub API | Mature, well-maintained |
-| Jinja2 | Prompt templates | Flexible, conditional rendering |
-| Pydantic | Structured output schemas | Type validation, JSON schema generation |
-| httpx | HTTP client | Async, modern, for direct API calls |
-
-### What We Explicitly Avoid
-
-| Anti-Pattern | Why | Alternative |
-|---|---|---|
-| Dynaconf / global settings | 200+ `get_settings()` in PR-Agent = hidden coupling | Explicit config injection |
-| Monolithic dependencies | PR-Agent installs 35 deps regardless of provider | Optional extras: `kenjutsu[github]`, `kenjutsu[gitlab]` |
-| Hardcoded command registry | PR-Agent's `command2class` dict blocks extensibility | Plugin system with registration |
-| 32K token default cap | PR-Agent wastes most of modern context windows | Actual model limits with configurable margin |
-| YAML-only LLM output | Fragile parsing with extensive repair logic | Structured output (function calling) where available, JSON with YAML fallback |
-
----
-
-## 5. Build vs Fork Decision
-
-### Why We Build From Scratch
-
-| Factor | Assessment |
-|---|---|
-| **AGPL license** | PR-Agent changed from Apache 2.0 to AGPL-3.0 in May 2025. Running a modified fork as a service requires making all source code available. This eliminates commercial SaaS on a current fork. |
-| **v0.29 (last Apache)** | Saves 4-6 weeks but inherits: 200+ global state call sites, 1.5K-line god files, 43 bare except clauses, mandatory dependency bloat. Full refactoring sprint needed within first quarter. |
-| **Architecture quality** | Building clean gives us: proper dependency injection, plugin system, consistent provider interfaces, no technical debt from day one. |
-| **Differentiation** | A fork constrains us to PR-Agent's single-pass, diff-only, stateless architecture. Our differentiation (layered context, multi-agent, governance) requires fundamentally different foundations. |
-
-### What We Study (Legally Safe)
-
-1. **Prompt engineering strategies** — structured output, Pydantic models in prompts, self-reflection scoring. Techniques are not copyrightable.
-2. **Diff processing algorithms** — token-aware chunking, dynamic context expansion, decoupled hunk format. Algorithmic ideas, independently reimplemented.
-3. **Configuration schema** — PR-Agent's `configuration.toml` is a comprehensive feature checklist.
-4. **Provider interface design** — what operations a code review tool needs (then design cleaner).
-
----
-
-## 6. Data Flow: End-to-End PR Review
+## 4. Data Flow
 
 ### Happy Path (Typical PR: 10 files, 500 lines)
 
 ```
-T+0s     GitHub sends pull_request webhook (opened/synchronize)
-T+0.1s   Webhook server: HMAC verify → ack 200 → enqueue async task
-T+0.5s   PR Processor: fetch PR metadata, diff, file list
-T+1.5s   Diff Processor: parse unified diff → decoupled hunks → context extension via tree-sitter
-T+2.0s   Context Retriever L1: import graph + co-change + test matching
-T+2.5s   Token budgeting: allocate diff + context within model limits
-T+3.0s   Review Engine Pass 1: render prompt → LLM call (Claude Sonnet 4.5)
-T+18s    Response parsing: extract findings, validate structure
-T+18.5s  Review Engine Pass 2: self-reflection scoring → filter FPs
-T+28s    Publisher: format findings → pending review → submit atomically
-T+29s    Publisher: create Check Run with annotation summary
-T+30s    Done. Developer sees one review with severity-ranked findings.
+T+0s     GitHub webhook (pull_request opened)
+T+0.1s   HMAC verify → ack 200 → enqueue async task
+T+0.5s   Fetch PR metadata, diff, file list
+T+1.5s   Parse diff → decoupled hunks → tree-sitter context extension
+T+2.0s   Layer 1 context: import graph + co-change + test matching
+T+2.5s   Token budget allocation within model limits
+T+3.0s   Prompt rendering → LLM call (Claude Sonnet 4.5)
+T+18s    Response parsing → Pydantic validation
+T+18.5s  Self-reflection pass → filter FPs → attach governance metadata
+T+28s    Publisher: format → pending review → submit atomically
+T+29s    Check Run with annotation summary
+T+30s    Done.
 ```
-
-**Total latency: ~30 seconds.** Comparable to PR-Agent's single-call design, but with context and FP filtering.
 
 ### Large PR Path (50+ files, 2000+ lines)
 
-```
-T+0-3s    Same as above through diff processing
-T+3s      Multi-patch split: 3-4 chunks within token budget
-T+3-25s   Parallel LLM calls (one per chunk) + Layer 2 context if activated
-T+25-35s  Aggregate findings across chunks
-T+35-45s  Self-reflection pass on aggregated findings
-T+45-50s  Publish
-```
+Multi-patch: split into 3-4 chunks → parallel LLM calls → aggregate → self-reflect → publish. Total: ~50-60 seconds.
 
-**Total latency: ~50-60 seconds.** Parallel processing keeps large PRs manageable.
+### Incremental Review (New Commits)
 
-### Incremental Review (New Commits on Existing PR)
-
-```
-T+0s     synchronize webhook → debounce 30-60 seconds
-T+30-60s Diff new commits against last reviewed commit (not full PR)
-         → normal pipeline on delta only
-         → dismiss stale findings that no longer apply
-```
+Debounce 30-60s → diff new commits against last reviewed commit → normal pipeline on delta → dismiss stale findings.
 
 ---
 
-## 7. Trade-offs and Risks
+## 5. Technology Choices
 
-### Deliberate Trade-offs
+### Language: Python
 
-| We Choose | Over | Because |
+Best LLM ecosystem (LiteLLM, tiktoken, Anthropic SDK), mature tree-sitter bindings, FastAPI, LlamaIndex-native. PR-Agent (studied, not forked) is Python. Fastest path to MVP.
+
+Trade-off acknowledged: weaker for GitHub Action packaging and IDE extensions. Plan TypeScript wrappers for those surfaces post-MVP.
+
+### Key Dependencies
+
+| Library | Purpose | Why |
 |---|---|---|
-| Precision (< 5% FP) | Recall (catch every bug) | False positives are the #1 adoption killer. A tool that speaks only when it matters earns trust. |
-| Build from scratch | Fork for speed | AGPL blocks commercial use. Technical debt from forking costs more long-term than building clean. |
-| Python | TypeScript | LLM ecosystem maturity. We can add TS for IDE components later. |
-| GitHub App first | Multi-platform from day one | GitHub is the dominant platform. Ship one integration well before spreading thin. |
-| Single agent MVP | Multi-agent from day one | Prove the core review quality first. Multi-agent is additive — same engine, different prompts. |
-| Heuristic context first | Full embeddings from day one | Layer 1 context is free and fast. Embeddings add cost and complexity. Layer 1 is sufficient for many PRs. |
+| FastAPI | Webhook server | Async, well-documented, community standard |
+| LiteLLM | Multi-LLM provider | 100+ providers, unified interface |
+| LlamaIndex | Retrieval orchestration (Layer 2) | Deepest retrieval primitives, code-specific extensions |
+| py-tree-sitter | AST parsing | Universal, production-proven |
+| tiktoken | Token counting | Fast, model-aware |
+| Voyage-code-3 | Code embeddings | SOTA for code retrieval |
+| LanceDB | Vector storage (MVP) | Embedded, zero-infra |
+| PyGithub | GitHub API | Mature, well-maintained |
+| Jinja2 | Prompt templates | Flexible, conditional rendering |
+| Pydantic | Structured output + settings | Type validation, configuration management |
 
-### Known Risks
+### What We Avoid
 
-| Risk | Likelihood | Impact | Mitigation |
+| Anti-pattern | Why | Alternative |
+|---|---|---|
+| Dynaconf / global state | PR-Agent's 200+ `get_settings()` = hidden coupling | Pydantic Settings, explicit injection |
+| Monolithic deps | 35 deps regardless of provider | Optional extras: `kenjutsu[github]` |
+| Hardcoded commands | Blocks extensibility | Plugin system with registration |
+| 32K token cap | Wastes modern context windows | Actual model limits |
+| Graph-RAG systems | LLM entity extraction is wrong for code (DEM-114) | tree-sitter AST for code graphs |
+
+---
+
+## 6. Trade-offs and Rationale
+
+| Decision | What We Gain | What We Risk | Mitigation |
 |---|---|---|---|
-| **FP rate > 5% target** | High | Critical | Self-reflection pass. Budget 3-4 weeks for prompt tuning on real PRs. Feedback loop post-MVP. |
-| **Prompt engineering iteration** | High | High | Start with PR-Agent's strategies. Iterate empirically. This is the long pole — schedule for it. |
-| **Large diff edge cases** | Medium | Medium | Multi-patch mode, token budget management. Test against real-world monorepo commits. |
-| **GitHub rate limits** | Medium | Medium | Pending review pattern, Check Run annotations, debouncing. Monitor headers proactively. |
-| **Context noise hurting quality** | Medium | High | Layered retrieval with explicit quality gates. Reranking to top-k only. Measure retrieval precision. |
-| **Market timing** | Medium | High | Governance niche is still open. EU AI Act deadline creates urgency. Ship before August 2026. |
+| Build from scratch | Clean IP, no AGPL, optimal architecture | 10-14 weeks (vs 2-4 fork) | Deep study of PR-Agent patterns |
+| Single-process pipeline | Debuggable, deployable, testable | Doesn't scale horizontally | Extract workers when needed (>1K PRs/day) |
+| LlamaIndex for Layer 2 | 7 built-in capabilities | API churn, abstraction overhead | Insulation layer, Haystack fallback |
+| Layer 1 only for MVP | Ships fast, low cost | Shallower than competitors | Layer 2 as fast follow (weeks 13-16) |
+| Single agent MVP | Simplicity, focus on core quality | No specialization | Evidence-gated agents post-MVP |
+| Python only | Best ecosystem, fastest path | Friction with platform ecosystem | TypeScript wrappers post-MVP |
+| <10% FP target | Realistic, achievable | Higher than aspirational <5% | Feedback loop for continuous improvement |
+| Governance metadata only | Cheap to add, expensive to retrofit | No governance UI or policy engine | Build dashboard when demand exists |
 
 ---
 
-## 8. MVP Scope
+## 7. Phased Delivery
 
-### In Scope (MVP)
+### Phase 1: Foundation (Weeks 1-4)
 
-| Component | Detail |
-|---|---|
-| GitHub App | Webhook server, app authentication, bot identity |
-| `/review` command | Structured review with severity ranking |
-| Layer 1 context | Heuristics: import graph, co-change, test matching, diff extension |
-| Self-reflection | FP filtering via second LLM pass |
-| Configuration | `.kenjutsu.toml` with sensible defaults |
-| Check Runs | Summary status with line-level annotations |
-| Inline suggestions | `suggestion` blocks for one-click apply |
-| CLI | Local testing without GitHub App infrastructure |
-| Single LLM provider | Claude Sonnet 4.5 (primary) |
+- GitHub App registration, webhook server, signature verification
+- Git platform provider (auth, diff fetching, file retrieval, review publishing)
+- Diff processor (parsing, hunk formatting, token budgeting, chunking)
+- Configuration system (`.kenjutsu.toml` with defaults)
+- CLI for local testing
 
-### Out of Scope (Post-MVP)
+**Exit criteria:** Receives PR webhook, fetches diff, posts formatted summary.
 
-| Component | Phase |
-|---|---|
-| Layer 2 context (embeddings, semantic search) | Phase 2 (weeks 13-16) |
-| Multi-agent review (security, performance, architecture specialists) | Phase 3 |
-| GitLab / Bitbucket / Azure DevOps | Phase 3 |
-| `/describe`, `/improve`, `/ask` commands | Phase 2 |
-| Feedback loop learning (upvote/downvote → embeddings) | Phase 3 |
-| Governance audit trails | Phase 3 |
-| GitHub Action distribution | Phase 2 |
-| Web UI for configuration | Phase 4 |
-| Knowledge preservation (institutional decision memory) | Phase 4 |
+### Phase 2: Review Intelligence (Weeks 5-8)
+
+- LLM integration via LiteLLM, Jinja2 prompt templates, Pydantic structured output
+- Review engine (severity scoring, finding generation)
+- Layer 1 context (tree-sitter import graph, hunk extension, co-change, test matching)
+- Self-reflection pass for FP filtering
+- Publisher (pending review pattern, Check Runs)
+
+**Exit criteria:** Reviews real PRs with severity ranking and <10% FP rate.
+
+### Phase 3: Production Hardening (Weeks 9-12)
+
+- Prompt engineering iteration on real PRs
+- Large PR handling (multi-patch), edge cases, error handling
+- Paperclip integration (single agent, governance metadata)
+- Deployment packaging (Docker), documentation
+- Internal benchmark suite
+
+**Exit criteria:** Production-ready. Installable on real repos. Benchmarked against competitors.
+
+### Phase 4: Context Depth (Weeks 13-16, Fast Follow)
+
+- LlamaIndex integration: custom NodeParser, custom retrievers
+- Voyage-code-3 embeddings with NL descriptions
+- Hybrid BM25 + vector retrieval, cross-encoder reranking
+- Incremental indexing with content-hash caching
+- A/B measurement: Layer 1 vs Layer 1+2 quality
+
+**Exit criteria:** Measurable improvement in review quality over Layer 1 baseline.
+
+### Phase 5: Specialization & Distribution (Weeks 17-20)
+
+- Evidence-based decision on specialized agents
+- If warranted: Security Agent, Architecture Agent
+- GitHub Action distribution
+- Feedback collection mechanism (accept/reject signals)
+- Governance dashboard (if customer demand exists)
+
+**Exit criteria:** Evidence-based agent roster. Two distribution channels. Feedback data flowing.
 
 ---
 
-## 9. Cost Model
+## 8. Infrastructure and Cost Projections
 
-### Per-PR Costs (MVP, Claude Sonnet 4.5)
-
-| PR Size | LLM Calls | Input Tokens | Output Tokens | Cost |
-|---|---|---|---|---|
-| Small (3 files, 100 lines) | 2 (review + reflect) | ~30K | ~3K | $0.14 |
-| Typical (10 files, 500 lines) | 2 | ~65K | ~8K | $0.32 |
-| Large (50 files, 2000 lines) | 5 (3 chunk + 1 aggregate + 1 reflect) | ~300K | ~25K | $1.28 |
-
-**With prompt caching (90% reduction on system prompt):** Costs decrease 15-25% for the cached portion.
-
-### Infrastructure Costs (MVP)
+### MVP Infrastructure
 
 | Component | Monthly Cost |
 |---|---|
-| Webhook server (single container) | $20-50 |
+| Webhook server (single container, 1 vCPU, 1GB) | $20-50 |
 | Task queue (Redis or in-process) | $0-15 |
 | Monitoring (structured logging) | $0-30 |
 | **Total** | **$20-95** |
 
-### Break-Even
+### Post-MVP Additions (Layer 2)
 
-At $24/seat/month (market price point) and $0.32 average cost per PR, a developer generating 3 PRs/day costs ~$20/month in LLM usage. Break-even at approximately 4 PRs/seat/month (achievable for any active developer).
+| Component | Monthly Cost |
+|---|---|
+| Vector database (LanceDB → Qdrant) | $0-100 |
+| Embedding service (Voyage AI) | $0.06-0.12/1M tokens |
+| Storage (embedding cache) | $5-20 |
+| Background workers (indexing) | $30-100 |
+| **Total additions** | **$35-320** |
+
+### LLM Cost per Review (Claude Sonnet 4.5)
+
+| PR Size | Cost (no caching) | Cost (with prompt caching) |
+|---|---|---|
+| Small (1-5 files) | $0.14 | $0.06 |
+| Typical (5-15 files) | $0.32 | $0.12 |
+| Large (15-50 files, multi-patch) | $1.28 | $0.45 |
 
 ---
 
-## 10. Competitive Positioning
+## 9. Risk Assessment
 
-Based on our research, Kenjutsu occupies a position no current tool holds:
+### Risks We Accept
 
-| Dimension | CodeRabbit | Greptile | PR-Agent | **Kenjutsu** |
-|---|---|---|---|---|
-| Signal quality | Medium (noisy) | High (but FPs) | Low (shallow) | **High (precision-first)** |
-| Context depth | Medium (AST-grep + RAG) | High (full index) | Low (diff-only) | **Layered (adaptive)** |
-| Governance | None | None | None | **Paperclip-native** |
-| Multi-agent | No | No | No (Qodo 2.0 gated) | **Yes (orchestrated)** |
-| Self-hosted | Docker (enterprise) | Enterprise only | Yes (AGPL) | **Yes (clean license)** |
-| Pricing model | $24/seat | $30/seat | Free + paid | **$24/seat (competitive)** |
+| Risk | Likelihood | Impact | Acceptance Rationale |
+|---|---|---|---|
+| Prompt engineering takes longer than budgeted | High | Medium | Empirical work, not architecture. Schedule for it. |
+| Layer 1 quality gap vs competitors | High | Medium | Ships fast; Layer 2 fast follow closes the gap. |
+| Python-TypeScript friction for GitHub ecosystem | Medium | Low | TypeScript wrappers post-MVP. Core stays Python. |
 
-**The pitch:** "The code review tool that speaks only when it matters, with governance built in."
+### Risks We Mitigate
+
+| Risk | Mitigation |
+|---|---|
+| FP rate above target | Two-pass review + severity ranking + feedback collection from day one |
+| LLM API reliability | Cross-provider fallback (Claude → GPT-4o). Retry with backoff. |
+| LlamaIndex instability | Insulation layer + version pinning + Haystack migration target |
+| GitHub rate limits | Pending review pattern, Check Run annotations, debouncing |
+| IP risk from studying PR-Agent | Clean-room reimplementation. Patterns only, no code. |
+
+### Risks We Avoid
+
+| Risk | How |
+|---|---|
+| AGPL contamination | Build from scratch. No fork. |
+| Over-engineering | Single process, single agent, single platform for MVP. |
+| Premature scaling | One container handles hundreds of PRs/day. Scale when needed. |
+| Feature bloat | `/review` only until core quality is proven. |
+
+---
+
+## 10. What Makes This "Pragmatic"
+
+This architecture earns the "pragmatic" label because it makes the **least risky bet at every decision point:**
+
+- We build from scratch because AGPL leaves no alternative — not because we think we can build something better than years of PR-Agent iteration on day one.
+- We use Python because the LLM ecosystem demands it — not because it's the ideal language for every component of the system.
+- We ship with Layer 1 context because it's free and fast — not because we believe heuristics alone produce competitive reviews.
+- We start with one agent because single-agent quality is the prerequisite for multi-agent value — not because we doubt multi-agent specialization.
+- We target <10% FP because it's achievable with known techniques — not because <5% is impossible.
+
+Every component exists because it solves a problem we have today, not a problem we might have tomorrow. The architecture is designed to be extended — Layer 2 context, specialized agents, governance features — but nothing is built until the evidence demands it.
+
+The result: a system that ships in 12 weeks, works on day one, and can be incrementally improved based on real-world data rather than architectural speculation.
 
 ---
 
 ## Sources
 
 This architecture synthesizes findings from:
-- Competitive analysis (`research/competitive-analysis.md`)
-- Context and RAG strategies (`research/context-rag-strategies.md`)
-- Differentiation opportunities (`research/differentiation.md`)
-- GitHub integration options (`research/github-integration.md`)
-- PR-Agent deep-dive (`research/pr-agent-deep-dive.md`)
-- Technical feasibility assessment (`research/technical-feasibility.md`)
+- Competitive analysis (DEM-105): Market positioning, pricing, feature gaps
+- PR-Agent deep-dive (DEM-106): Architecture patterns, diff processing, prompt engineering, AGPL finding
+- GitHub integration (DEM-107): App vs Action, rate limits, API patterns
+- Context/RAG strategies (DEM-108): Embedding approaches, chunking, retrieval pipelines
+- Differentiation (DEM-109): Market gaps, positioning options, governance opportunity
+- Technical feasibility (DEM-110): Build vs fork, MVP scope, timeline, cost projections
+- Retrieval framework evaluation (DEM-114): LlamaIndex recommendation, 10-framework comparison, graph-RAG category mismatch
