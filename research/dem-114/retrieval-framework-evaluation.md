@@ -5,7 +5,7 @@
 - **Date:** 2026-03-23
 - **Issue:** DEM-114
 - **Parent:** DEM-113
-- **Version:** 3 (incorporates board feedback on modern framework coverage and expert reviews from DEM-115, DEM-116)
+- **Version:** 3.1 (consolidates v1 deep-dive content into appendices; removes stale top-level file)
 
 ---
 
@@ -477,3 +477,156 @@ None of these provide competitive advantage. A **lightweight orchestration + dir
 - [Mastra RAG Documentation](https://mastra.ai/docs/rag/overview)
 - [14 AI Agent Frameworks Compared (2025)](https://softcery.com/lab/top-14-ai-agent-frameworks-of-2025-a-founders-guide-to-building-smarter-systems)
 - [Comparing AI Agent Frameworks — Atla AI](https://atla-ai.com/post/ai-agent-frameworks)
+
+---
+
+## Appendix A: LightRAG Architecture Detail
+
+*Consolidated from the v1 evaluation for reference. The assessment above summarizes the conclusion; this appendix preserves the technical detail.*
+
+### Indexing Phase
+
+1. Documents are chunked (default 1200 tokens, 100-token overlap)
+2. An LLM extracts entities and relationships from each chunk
+3. Entities become graph nodes; relationships become edges
+4. Each node and edge stores a structured textual profile
+5. Chunks are embedded and stored in a vector database
+
+### Query Phase — Six Retrieval Modes
+
+| Mode | Behavior |
+|---|---|
+| **naive** | Vector-only similarity search (baseline) |
+| **local** | Graph traversal for direct entity connections |
+| **global** | Cross-document relationship discovery via graph |
+| **hybrid** | Combined local + global |
+| **mix** | Combines knowledge graph extraction with vector retrieval, applying both graph-based and semantic search strategies |
+| **bypass** | Passes the query directly to the LLM without retrieval |
+
+### Storage Backends (Pluggable)
+
+- **KV:** JSON, PostgreSQL, Redis, MongoDB, OpenSearch
+- **Vector:** NanoVectorDB, pgvector, Milvus, Chroma, Faiss, Qdrant, MongoDB, OpenSearch
+- **Graph:** NetworkX, Neo4j, PostgreSQL (AGE), OpenSearch
+
+### Cost Characteristics
+
+- ~100 tokens per query vs. GraphRAG's ~610,000 (6,000x reduction enabled by skipping community clustering)
+- Incremental updates via graph union (~50% faster update cycles vs. GraphRAG full rebuild)
+- High indexing cost: LLM entity extraction required per chunk (32K+ context, 32B+ parameter model)
+
+---
+
+## Appendix B: Additional Systems Evaluated in v1
+
+*These systems were evaluated in v1 but summarized in v3 Section 2 as "same fundamental mismatch." Full evaluations preserved here for reference.*
+
+### Microsoft GraphRAG
+
+| Attribute | Detail |
+|---|---|
+| **License** | MIT |
+| **GitHub stars** | 31.7K |
+| **Latest version** | v3.0.6 (March 2026) |
+| **Maintainer** | Microsoft Research (not officially supported product) |
+
+**Architecture:** Five-stage pipeline — document chunking → LLM entity/relationship extraction → Leiden algorithm community clustering → community summary report generation → dual-mode querying (local entity search + global community-based synthesis).
+
+**Key differentiator:** Community detection and hierarchical summarization enable "global queries" that address themes across entire datasets ("what are the main security concerns in this codebase?").
+
+**Cost:** Indexing is expensive — original benchmarks showed $33K for large datasets. LazyGraphRAG (2025) reduces indexing cost to 0.1% of full GraphRAG by deferring graph construction to query time.
+
+**Fit for Kenjutsu: Poor.** Same fundamental mismatch as LightRAG (LLM entity extraction for code), compounded by prohibitive indexing costs and no incremental update support.
+
+### R2R (RAG to Riches, SciPhi-AI)
+
+| Attribute | Detail |
+|---|---|
+| **License** | MIT |
+| **GitHub stars** | 7.7K |
+| **Latest version** | v3.6.5 (June 2025) |
+| **Maintainer** | SciPhi-AI |
+
+**Architecture:** REST API-first system with three core pipelines — Ingestion (document parsing → embeddings), Embedding (vector storage), RAG (retrieval + LLM generation). Includes automatic knowledge graph extraction, hybrid search (semantic + keyword with RRF), and a Deep Research API for multi-step agentic reasoning.
+
+**Strengths:** Production-oriented from day one (REST API, auth, observability); hybrid search with reciprocal rank fusion built-in; Python and JavaScript SDKs.
+
+**Weaknesses:** Smaller community (7.7K stars, 70 contributors); no code-specific features; opinionated architecture harder to extend with custom indexing.
+
+**Fit for Kenjutsu: Moderate.** R2R's hybrid search and production infrastructure are relevant, but it's a complete system rather than a composable toolkit. Integrating custom AST-based indexing would mean working against R2R's opinions rather than with them.
+
+### Cognee (Topoteretes)
+
+| Attribute | Detail |
+|---|---|
+| **License** | Apache-2.0 |
+| **GitHub stars** | 14.5K |
+| **Latest version** | v0.5.5 (March 2026) |
+| **Maintainer** | Topoteretes |
+
+**Architecture:** Memory-first knowledge engine combining vector search, graph databases, and cognitive science approaches. Modular pipeline: ingestion (30+ data sources) → enrichment (embeddings + graph "memify") → retrieval (graph traversal + vector similarity + time filtering).
+
+**Strengths:** Memory-first design ideal for agentic systems; graph + vector hybrid unified architecture; multi-backend support (NetworkX for dev, Neo4j/FalkorDB for prod); tenant isolation and OTEL observability; Apache-2.0 license.
+
+**Weaknesses:** Pre-v1.0 (v0.5.5) — API stability not guaranteed; incomplete documentation; no code-specific indexing or retrieval features.
+
+**Fit for Kenjutsu: Moderate.** Cognee's incremental knowledge accumulation and agentic memory model are conceptually interesting for a code review tool that should learn from feedback over time. However, it's immature (pre-v1.0) and lacks code-specific features.
+
+---
+
+## Appendix C: Critical Finding — LLM Entity Extraction vs. AST Parsing for Code
+
+*This standalone research synthesis was the core technical finding of the v1 evaluation. The main document references the conclusion in Section 2; the full analysis is preserved here.*
+
+All graph-based RAG systems (LightRAG, GraphRAG, R2R, Cognee) use **LLM-based entity extraction**, designed for natural language documents. Recent research (Chinthareddy 2026, AST-derived DKB) demonstrates that for code retrieval:
+
+1. **AST-derived graphs outperform LLM-extracted graphs** on code retrieval benchmarks (SWE-bench, RepoEval). Deterministic structural analysis captures function dependencies, call graphs, and type hierarchies that LLM extraction misses or hallucinates.
+
+2. **AST parsing is free; LLM extraction is expensive.** Tree-sitter parses a file in milliseconds with zero API cost. LLM entity extraction costs tokens per chunk and takes seconds per call. For a codebase with thousands of files, the cost difference is orders of magnitude.
+
+3. **Structural accuracy matters more than semantic richness for code.** When reviewing a PR, knowing that "function A calls function B which implements interface C" (AST-derived) is more useful than knowing "this module handles authentication" (LLM-extracted).
+
+4. **Hybrid approaches win.** AST-grep for deterministic structure + natural language descriptions for semantic retrieval. The best code retrieval system combines cheap structural analysis (always) with selective semantic enrichment (when needed).
+
+This finding is the primary reason none of the evaluated prebuilt graph-RAG systems are suitable as Kenjutsu's complete retrieval solution. They solve the wrong problem — document retrieval — while Kenjutsu needs code retrieval.
+
+---
+
+## Appendix D: Three-Layer Context Pipeline Architecture
+
+*This architecture mapping from v1 shows how the LlamaIndex recommendation maps to the multi-layer context pipeline identified in prior research (DEM-108).*
+
+```
+PR Event → Layer 1 (free heuristics) → Layer 2 (semantic retrieval) → Layer 3 (agentic search)
+```
+
+**Layer 1 — Custom components (always, free):**
+- Tree-sitter AST parsing → import graph traversal (custom LlamaIndex retriever)
+- Git co-change analysis (custom retriever)
+- Test file matching (custom retriever)
+- Diff extension to enclosing function/class (custom NodeParser)
+
+**Layer 2 — LlamaIndex built-ins (when needed, medium cost):**
+- Function-level embeddings via Voyage-code-3 (LlamaIndex embedding integration)
+- Hybrid BM25 + vector retrieval (LlamaIndex's hybrid search)
+- Cross-encoder reranking (LlamaIndex's reranking integration)
+
+**Layer 3 — Future (higher cost):**
+- Agentic multi-hop search (LlamaIndex agent framework)
+- Historical review matching (custom retriever)
+
+---
+
+## Appendix E: Additional Sources (from v1)
+
+- [LightRAG — EMNLP 2025 Paper](https://aclanthology.org/2025.findings-emnlp.568.pdf)
+- [Microsoft GraphRAG — GitHub](https://github.com/microsoft/graphrag)
+- [LazyGraphRAG — Microsoft Research](https://www.microsoft.com/en-us/research/blog/lazygraphrag-setting-a-new-standard-for-quality-and-cost/)
+- [R2R — GitHub (SciPhi-AI)](https://github.com/SciPhi-AI/R2R)
+- [Cognee — GitHub (Topoteretes)](https://github.com/topoteretes/cognee)
+- [GraphRAG vs LightRAG Comparison](https://lilys.ai/en/notes/get-your-first-users-20260207/graphrag-lightrag-comparison)
+- [GraphRAG vs LightRAG — Maarga Systems](https://www.maargasystems.com/2025/05/12/understanding-graphrag-vs-lightrag-a-comparative-analysis-for-enhanced-knowledge-retrieval/)
+- [Reliable Graph-RAG for Codebases: AST-Derived (Chinthareddy 2026)](https://arxiv.org/pdf/2601.08773)
+- [RAG Frameworks Comparison — Pathway](https://pathway.com/rag-frameworks)
+- [Cognee — From RAG to Graphs (Memgraph)](https://memgraph.com/blog/from-rag-to-graphs-cognee-ai-memory)
+- [cAST — Structural Chunking via AST (EMNLP 2025)](https://arxiv.org/html/2506.15655v1)
