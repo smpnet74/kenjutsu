@@ -1,6 +1,6 @@
 # Architecture Proposal: Balanced — Pragmatic Innovation
 
-**Date:** 2026-03-23
+**Date:** 2026-03-24 (v2 — revised per board feedback)
 **Author:** Chief Architect
 **Issue:** DEM-120
 **Parent:** DEM-117
@@ -12,9 +12,52 @@
 This architecture finds the sweet spot between proven approaches and strategic innovation. The guiding principle: **be conservative where failure cost is high, be ambitious where the risk-reward ratio is favorable.**
 
 - **Conservative:** GitHub App integration, Python stack, build-from-scratch IP strategy, diff processing algorithms, webhook infrastructure — these are solved problems with known failure modes. Use proven patterns.
-- **Ambitious:** Multi-agent review via Paperclip, natural language code descriptions for retrieval, governance-aware review pipeline, tiered context depth — these are differentiation vectors where the upside justifies the engineering investment.
+- **Ambitious:** Multi-agent review via Paperclip, natural language code descriptions for retrieval, governance-aware review pipeline, LlamaIndex-orchestrated tiered context — these are differentiation vectors where the upside justifies the engineering investment.
 
 The result is a system that ships a useful MVP quickly using battle-tested infrastructure, while building toward capabilities no competitor can replicate.
+
+---
+
+## Assumptions We Challenge
+
+The research provides a strong foundation, but several claims deserve scrutiny before we build on them. Architecture decisions should survive contact with skepticism.
+
+### 1. "82% vs 44% bug detection means full indexing is non-negotiable"
+
+The Greptile benchmark (DevToolsAcademy Macroscope 2025) is frequently cited but has limitations: it was conducted by a third party using Greptile-adjacent methodology, it is not peer-reviewed, and the 50-PR sample size across 5 repos is small. The 82% figure is for Greptile's full pipeline (AST index + agentic search + feedback loop), not solely for codebase indexing.
+
+**Our position:** Full codebase context clearly helps, but we should not over-index on a single benchmark. The right question is not "how do we replicate Greptile's 82%?" but "what is the minimum context depth that produces reviews developers actually trust?" Our tiered approach lets us measure this empirically rather than assuming the answer.
+
+### 2. "LlamaIndex is the obvious retrieval framework choice"
+
+The DEM-114 evaluation recommends LlamaIndex and the reasoning is sound — deepest retrieval primitives, natural extension points for code-specific components, largest integration ecosystem. But we should be honest about the risks:
+
+- **Abstraction tax.** LlamaIndex's deep abstraction layers add latency and debugging complexity. For a code review tool where every review is latency-sensitive (developers want results in <60s), the overhead matters. The DEM-114 evaluation acknowledges this but may underweight it.
+- **API churn history.** LlamaIndex has broken backward compatibility between minor versions multiple times. Building four custom components (NodeParser, three retrievers) on a churning API multiplies maintenance cost.
+- **LlamaCloud commercial pressure.** VC-backed OSS follows a pattern: new capabilities land in the commercial product first. We need an exit strategy if critical retrieval primitives become LlamaCloud-only.
+
+**Our position:** Use LlamaIndex, but with deliberate insulation. Wrap all LlamaIndex interfaces behind our own thin abstractions (`KenjutsuRetriever`, `KenjutsuNodeParser`). If LlamaIndex becomes untenable, Haystack is the migration target — similar concepts, different API, Apache-2.0 licensed. The wrapper cost is low; the optionality is high.
+
+### 3. "Paperclip multi-agent review is our primary differentiator"
+
+Multi-agent review is genuinely unique — no competitor has an agent orchestration platform. But "unique" and "useful" are different things. The risk: multi-agent orchestration adds latency (agent routing, parallel execution, deduplication), complexity (agent disagreement resolution, finding consolidation), and cost (multiple LLM calls per review). If a single well-prompted reviewer produces 90% of the value at 30% of the cost, multi-agent is over-engineering.
+
+**Our position:** Ship MVP with a single general-purpose reviewer. Measure quality. Add specialized agents only when we have evidence that specialization improves precision for specific finding categories (security, performance). The orchestration plumbing exists from day one (Review Router interface), but we don't populate it until the evidence justifies it.
+
+### 4. "False positive rate under 5% is achievable with self-reflection"
+
+The research assumes a two-pass approach (generate + self-reflect) will get us to <5% FP. This is optimistic. Self-reflection helps, but the FP rate is fundamentally a function of context quality, prompt engineering, and the underlying model's code understanding. No competitor has publicly demonstrated <5% FP across diverse codebases. Graphite Diamond claims <3% "unhelpful" but detects only 6% of bugs — low noise because it says almost nothing.
+
+**Our position:** Target <10% FP for MVP (still better than most competitors). Invest in prompt engineering iteration and feedback loops for continuous improvement. Treat <5% as an aspirational target that requires real-world data, not a design requirement we can architect our way to.
+
+### 5. "Embed natural language descriptions of code, not raw code"
+
+Greptile's data shows 12% cosine similarity improvement for NL descriptions vs raw code (0.8152 vs 0.7280). This is real but comes with tradeoffs:
+- LLM call per function during indexing (~$50-100 for a large codebase)
+- Description quality depends on the summarizing model — bad descriptions poison retrieval
+- Descriptions can become stale faster than code (semantic drift)
+
+**Our position:** Use NL descriptions, but with a fallback. Index both raw code embeddings and NL descriptions. If the NL description is low-confidence or stale (content hash changed but description not yet regenerated), fall back to raw code embedding. This adds storage cost (~2x) but eliminates a single point of failure in the retrieval pipeline.
 
 ---
 
@@ -22,7 +65,7 @@ The result is a system that ships a useful MVP quickly using battle-tested infra
 
 ### System Boundaries
 
-Kenjutsu operates as three loosely coupled subsystems:
+Kenjutsu operates as three loosely coupled subsystems plus an asynchronous index:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -37,20 +80,22 @@ Kenjutsu operates as three loosely coupled subsystems:
 │  │ • Git API    │  │ • Retrieval  │  │ • Publishing     │  │
 │  └──────────────┘  └──────────────┘  └──────────────────┘  │
 │                                                             │
-│  ┌─────────────────────────────────────────────────────┐    │
-│  │                  Index Subsystem                     │    │
-│  │  • AST parsing  • Embedding  • Incremental sync     │    │
-│  └─────────────────────────────────────────────────────┘    │
+│  ┌─────────────────────────────────────────────────────────┐│
+│  │                  Index Subsystem                        ││
+│  │ • AST parsing (tree-sitter)                             ││
+│  │ • Embedding (Voyage-code-3 via LlamaIndex)              ││
+│  │ • Incremental sync (content-hash caching)               ││
+│  └─────────────────────────────────────────────────────────┘│
 └─────────────────────────────────────────────────────────────┘
 ```
 
 **Ingestion** receives events, processes diffs, and interfaces with git platforms. This is plumbing — it should be reliable, fast, and boring.
 
-**Analysis** retrieves context, generates review findings, and scores confidence. This is where intelligence lives — it should be deep, precise, and continuously improving.
+**Analysis** retrieves context via LlamaIndex-orchestrated retrieval pipeline, generates review findings, and scores confidence. This is where intelligence lives — it should be deep, precise, and continuously improving.
 
 **Orchestration** routes review tasks to specialized agents, enforces governance rules, and publishes results. This is the Paperclip-native layer — it should be composable, auditable, and unique.
 
-**Index** runs asynchronously, building and maintaining the codebase knowledge graph. This is the context foundation — it should be incremental, cost-efficient, and resilient to staleness.
+**Index** runs asynchronously, building and maintaining the codebase knowledge graph via tree-sitter AST parsing and LlamaIndex indexing. This is the context foundation — it should be incremental, cost-efficient, and resilient to staleness.
 
 ### Why Three Subsystems (Not One Pipeline)
 
@@ -71,7 +116,7 @@ The risk of over-separation is integration complexity. We mitigate this by keepi
 
 **Approach: Proven (conservative)**
 
-A GitHub App is non-negotiable. The rate limits (5,000-12,500 req/hr vs 1,000 for Actions), exclusive Checks API access, bot identity, and marketplace distribution make it the only production-viable choice. Every serious competitor uses this model.
+A GitHub App is the standard for production code review tools. The rate limits (5,000-12,500 req/hr vs 1,000 for Actions), exclusive Checks API access, bot identity, and marketplace distribution are all decisive advantages. Every serious competitor uses this model.
 
 **Components:**
 - FastAPI webhook server with HMAC-SHA256 verification
@@ -79,66 +124,68 @@ A GitHub App is non-negotiable. The rate limits (5,000-12,500 req/hr vs 1,000 fo
 - Event routing for `pull_request` (opened, synchronize, reopened) and `issue_comment` events
 - Async task dispatch via Redis queue (or in-process queue for MVP)
 - PR metadata fetching, diff retrieval, file content access
+- **Debounce on `synchronize` events** — wait 30-60 seconds before starting review in case more commits follow
 
-**Secondary:** GitHub Action for zero-infrastructure onboarding. Same analysis logic, different trigger mechanism. This is a distribution play — lower barrier to entry for individual developers and small teams.
+**Secondary:** GitHub Action for zero-infrastructure onboarding. Same analysis logic, different trigger mechanism. This is a distribution play — lower barrier to entry for individual developers and small teams who want to try before committing to an App install.
 
-**Design decision:** Build the GitHub provider as a clean abstraction (`GitPlatformProvider` interface) from day one, but only implement GitHub initially. GitLab and Bitbucket are post-MVP. The abstraction costs almost nothing upfront and prevents a rewrite later.
-
-**What we explicitly skip:** Raw webhook integration, OAuth App tokens, polling mode. These add maintenance burden without meaningful user value.
+**Design decision:** Build the GitHub provider as a `GitPlatformProvider` interface from day one, but only implement GitHub initially. GitLab and Bitbucket are post-MVP. The abstraction costs almost nothing upfront and prevents a rewrite later.
 
 ### 2.2 Diff Processing Pipeline
 
-**Approach: Proven (conservative) — study PR-Agent, implement clean**
+**Approach: Proven (conservative) — study PR-Agent's patterns, implement clean**
 
-Diff processing is algorithmic work with well-understood solutions. PR-Agent has iterated on this for years. We study their approach and reimplement cleanly.
+Diff processing is algorithmic work with well-understood solutions. PR-Agent has iterated on this for years. We study their approach (hunk extension, token-aware chunking, decoupled format) and reimplement cleanly. This is legally safe — algorithms and strategies are not copyrightable.
 
 **Pipeline:**
 1. Parse unified diff into structured `PatchFile` objects
-2. Convert to decoupled hunk format (separate new/old views with line numbers) — this format helps LLMs reason about change positioning
+2. Convert to decoupled hunk format (separate new/old views with line numbers) — this format helps LLMs reason about change positioning for inline suggestions
 3. Extend hunks to enclosing function/class boundaries via tree-sitter (dynamic context expansion)
 4. Apply token-aware chunking: greedy fill within budget, language-prioritized ordering
 5. Large diff handling: multi-patch mode (split into chunks, parallel LLM calls) for PRs exceeding token budget
 6. Deletion omission: strip deletion-only hunks, list deleted files by name
 
-**Token budget management:** Count tokens before every LLM call using tiktoken. Set model-aware limits (not PR-Agent's artificial 32K default). Reserve 10% output buffer. Graceful degradation — reduce context depth rather than fail.
+**Token budget management:** Count tokens before every LLM call using tiktoken. Set limits based on actual model capabilities (200K for Claude Sonnet 4.5) — not PR-Agent's artificial 32K default that wastes 85% of available context. Reserve 10% output buffer. Graceful degradation — reduce context depth rather than fail.
 
-**Trade-off acknowledged:** PR-Agent's token management is battle-tested but their 32K default cap wastes available context window. We set limits based on actual model capabilities (200K for Claude Sonnet 4.5, 100K+ for GPT-4o) with configurable overrides.
+### 2.3 Context Retrieval: LlamaIndex-Orchestrated Tiered Pipeline
 
-### 2.3 Context Retrieval: Tiered Depth
+**Approach: Pragmatic innovation — LlamaIndex framework with deliberate insulation**
 
-**Approach: Pragmatic innovation — cheap heuristics always, expensive retrieval when it matters**
+This is the component where we deviate most from PR-Agent (diff-only) while avoiding Greptile's expensive full-repo-always approach. The tiered architecture lets us ship with meaningful context at low cost, then deepen incrementally — and measure the impact of each tier.
 
-This is where we diverge from PR-Agent (diff-only) without requiring Greptile's resource-intensive full-repo indexing from day one. The tiered approach lets us ship with meaningful context at low cost, then deepen it incrementally.
+**Framework choice: LlamaIndex** (per DEM-114 evaluation). LlamaIndex treats retrieval as the core design problem, which matches our core problem. Its `NodeParser` and `BaseRetriever` interfaces are natural extension points for code-specific components. Four custom components, seven built-in capabilities — good leverage.
+
+**Critical insulation layer:** All LlamaIndex interfaces are wrapped behind our own abstractions (`KenjutsuRetriever` wraps `BaseRetriever`, `KenjutsuNodeParser` wraps `NodeParser`). This protects us from LlamaIndex API churn and preserves the option to migrate to Haystack if commercial pressure or stability concerns warrant it. Pin to a specific LlamaIndex major version; upgrade deliberately, not continuously.
 
 #### Tier 1 — Always On (Free, MVP)
 
 These signals are computationally cheap and provide substantial context improvement over diff-only:
 
-| Signal | Method | Cost |
-|---|---|---|
-| Enclosing scope | tree-sitter AST: expand hunks to function/class boundaries | Free (local parse) |
-| Import graph | tree-sitter: extract imports, resolve to files in repo | Free (local parse) |
-| Co-change files | `git log --follow` mining: files that historically change together | Free (git history) |
-| Test file matching | Path heuristics: `foo.py` ↔ `test_foo.py`, `foo.spec.ts` | Free (pattern match) |
-| Type definitions | tree-sitter: resolve type annotations to their definitions | Free (local parse) |
+| Signal | Method | LlamaIndex Integration | Cost |
+|---|---|---|---|
+| Enclosing scope | tree-sitter AST: expand hunks to function/class boundaries | Custom `KenjutsuNodeParser` | Free |
+| Import graph | tree-sitter: extract imports, resolve to files in repo | Custom `ImportGraphRetriever` | Free |
+| Co-change files | `git log --follow` mining: files that historically change together | Custom `CoChangeRetriever` | Free |
+| Test file matching | Path heuristics: `foo.py` ↔ `test_foo.py`, `foo.spec.ts` | Custom `TestFileRetriever` | Free |
+| Type definitions | tree-sitter: resolve type annotations to their definitions | Included in `ImportGraphRetriever` | Free |
 
-**Expected impact:** Moves us from PR-Agent's diff-only baseline toward CodeRabbit-level context awareness. Won't match Greptile's 82% bug detection rate, but will meaningfully outperform the 44% baseline of diff-only approaches.
+**Honest assessment:** Tier 1 gets us meaningfully past diff-only but won't match the depth of Greptile or CodeRabbit. That's acceptable for MVP. The question is whether the gap matters enough to delay shipping.
 
 #### Tier 2 — On-Demand (Medium Cost, Post-MVP Phase 1)
 
-Activated for PRs that touch shared code, APIs, or cross-cutting concerns:
+Activated for PRs that touch shared code, APIs, or cross-cutting concerns. LlamaIndex provides these as configuration, not custom code:
 
-| Signal | Method | Cost |
-|---|---|---|
-| Semantic search | Voyage-code-3 embeddings (1024 dims) on function-level chunks | Medium (embedding API + vector query) |
-| Hybrid retrieval | BM25 keyword + vector similarity, weighted 0.3/0.7 | Medium (dual index query) |
-| Cross-encoder reranking | ms-marco-MiniLM or Cohere Rerank v3 on top-50 candidates → top-10 | Medium (reranking API call) |
+| Signal | Method | LlamaIndex Component | Cost |
+|---|---|---|---|
+| Semantic search | Function-level embeddings (Voyage-code-3, 1024 dims) | `VectorIndexRetriever` | Medium |
+| Hybrid retrieval | BM25 keyword + vector similarity, weighted fusion | `QueryFusionRetriever` | Medium |
+| Cross-encoder reranking | Top-50 candidates → top-10 via reranker | `CohereRerank` / `SentenceTransformerRerank` | Medium |
+| Query routing | Route simple PRs through Tier 1, complex through full retrieval | `RouterQueryEngine` | Free |
 
-**Key insight from research:** Embed natural language descriptions of code, not raw code. Greptile's data shows 12% retrieval improvement (0.8152 vs 0.7280 cosine similarity). The cost is an LLM call per chunk during indexing — but this is a one-time cost amortized across all reviews.
+**Embedding strategy:** Embed both natural language descriptions and raw code for each function (dual index). NL descriptions for primary retrieval (12% quality improvement per Greptile data), raw code as fallback when descriptions are stale or low-confidence. This doubles storage cost but eliminates a single point of failure.
 
-**Chunking strategy:** Function-level via tree-sitter AST. Include class header + imports with each chunk. No mid-function splitting. This is backed by both Greptile's empirical data (7% similarity drop from surrounding noise) and academic evidence (cAST, EMNLP 2025).
+**Chunking:** Function-level via tree-sitter AST. Include class header + imports with each chunk for context. No mid-function splitting. Backed by Greptile's empirical data (7% similarity drop from noise) and academic evidence (cAST, EMNLP 2025: higher precision correlates with better generation more than recall).
 
-**Storage:** Voyage-code-3 at 1024 dimensions (92.28% of full 2048-dim quality, outperforms OpenAI-v3-large at 3072 dims). Binary quantization available for 32x storage reduction if needed at scale.
+**Incremental indexing:** Content-hash each chunk. On file change, re-chunk, compare hashes, only re-embed changed chunks. Re-index on PR creation against base branch; full re-index on default branch merge.
 
 #### Tier 3 — Deep Analysis (Higher Cost, Post-MVP Phase 2)
 
@@ -146,11 +193,11 @@ For complex PRs, architectural changes, or security-sensitive reviews:
 
 | Signal | Method | Cost |
 |---|---|---|
-| Agentic multi-hop search | LLM-guided dependency tracing through code graph | High (multiple LLM calls) |
-| Historical review matching | Embed past review decisions, retrieve similar patterns | Medium (vector query) |
-| Issue tracker context | Linked Jira/Linear/GitHub Issues for business context | Low (API call) |
+| Agentic multi-hop search | LLM-guided dependency tracing through code graph (consider LangGraph) | High |
+| Historical review matching | Embed past review decisions, retrieve similar patterns | Medium |
+| Issue tracker context | Linked Jira/Linear/GitHub Issues for business context | Low |
 
-**Trade-off:** Tier 3 is where we approach Greptile's depth. The cost is significant (multiple LLM calls per review), so it activates only for high-risk changes. The trigger heuristic: changes to shared libraries, API contracts, security-sensitive files, or changes flagged by specialized review agents.
+**Honest assessment:** Tier 3 is where we would approach Greptile's depth. But it's also where costs multiply. We should build Tier 3 only after measuring Tier 2's impact on review quality. If Tier 1+2 gets us to 70-80% of the quality of full agentic search at 20% of the cost, Tier 3 may not be worth the investment for most users.
 
 ### 2.4 Review Engine
 
@@ -160,45 +207,60 @@ For complex PRs, architectural changes, or security-sensitive reviews:
 
 **Primary model: Claude Sonnet 4.5** — best cost/quality ratio for code review. 200K context window. Strong structured output. $0.22-0.35 per typical PR.
 
-**Fallback: GPT-4o** — different model family reduces correlated failures. Similar quality tier at comparable cost.
+**Fallback: GPT-4o** — different model family reduces correlated failures. Cross-provider fallback is important because single-provider outages have historically lasted hours.
 
-**Deep analysis: Claude Opus 4.6** — reserved for self-reflection scoring and Tier 3 complex analysis. $1.10-1.75 per PR. Used only when the stakes justify the cost.
+**Deep analysis: Claude Opus 4.6** — reserved for self-reflection scoring and Tier 3 complex analysis on high-risk PRs only. $1.10-1.75 per PR. Used when the stakes justify the cost, not routinely.
 
-**Integration via LiteLLM** — unified interface to 100+ providers. Avoids vendor lock-in. Model-specific handling (temperature, system messages, reasoning effort) managed through a thin adapter layer, not scattered conditionals.
+**Integration via LiteLLM** — unified interface to 100+ providers. Model-specific handling (temperature, system messages, reasoning effort) managed through a thin adapter layer. This is a solved problem; LiteLLM is the standard.
 
 #### Prompt Architecture
 
-Jinja2 templates with Pydantic schema-driven structured output. This is PR-Agent's strongest contribution — the pattern of embedding output schemas in prompts and parsing structured YAML/JSON responses is battle-tested.
+Jinja2 templates with Pydantic schema-driven structured output. This pattern (embedding output schemas in prompts, parsing structured YAML/JSON responses) is PR-Agent's most valuable contribution. We reimplement the pattern, not the code.
 
 **Template structure:**
 ```
 System: Role definition + output schema (Pydantic model)
-Context: Codebase summary + retrieved context chunks (cached)
+Context: Codebase summary + retrieved context chunks (cached via prompt caching)
 Diff: Formatted hunks with line numbers
 Instructions: Review criteria + severity definitions
 ```
 
-**Prompt caching is critical.** Claude and OpenAI support prompt caching — up to 90% cost reduction for repeated system prompts + codebase summaries. The system prompt + cached context (60% of token budget) becomes near-free after the first review in a session.
+**Prompt caching:** Claude and OpenAI support prompt caching — up to 90% cost reduction for repeated system prompts + codebase summaries. The system prompt + cached context (60% of token budget) becomes near-free after the first review in a session. This is the single most important cost optimization.
 
-#### False Positive Suppression
+#### False Positive Management
 
-This is the most important quality metric. The research is unanimous: false positives are the #1 adoption killer across all tools. Our target: **<5% false positive rate.**
+**Realistic target: <10% FP rate for MVP.** This is already better than most competitors. <5% is an aspirational target that requires real-world feedback loop data, not just architecture.
 
 **Two-pass review:**
 1. **Generation pass:** Primary LLM generates findings with severity and confidence scores
-2. **Self-reflection pass:** Second LLM call (same or cheaper model) scores each finding 0-10 on relevance, accuracy, and actionability. Findings below threshold are suppressed.
+2. **Self-reflection pass:** Second LLM call (same or cheaper model) scores each finding on relevance, accuracy, and actionability. Findings below threshold are suppressed.
 
-**Innovation: Severity-first output.** Every finding is ranked: `critical` → `warning` → `info`. The review output leads with critical findings. Style nitpicks are suppressed by default (opt-in via configuration). This addresses the universal complaint that AI reviewers bury real bugs under style noise.
+**Severity-first output:** Every finding is ranked: `critical` → `warning` → `info`. The review output leads with critical findings. Style nitpicks are suppressed by default (opt-in via configuration). This addresses the universal complaint that AI reviewers bury real bugs under style noise.
 
-**Post-MVP: Feedback loop.** Track which findings developers accept vs dismiss. Use this signal to tune confidence thresholds per repository. Greptile's data shows this improved their addressed-comment rate from 19% to 55% within two weeks.
+**Post-MVP: Feedback loop.** Track which findings developers accept vs dismiss per repository. Use acceptance rates to tune confidence thresholds. This is where the real FP improvement comes from — not from architecture, but from empirical calibration.
 
-### 2.5 Orchestration: Paperclip-Native Multi-Agent Review
+### 2.5 Orchestration: Paperclip-Native Review Routing
 
-**Approach: Strategic innovation — our primary differentiation vector**
+**Approach: Strategic investment — build the plumbing now, populate it when evidence supports it**
 
-This is where Kenjutsu becomes something competitors cannot replicate. Every other tool runs review logic in a single process. We decompose review into specialized agents coordinated by Paperclip.
+The Orchestration layer is where Kenjutsu becomes something competitors cannot replicate. But we are deliberate about when we activate multi-agent capabilities.
 
-#### Agent Topology
+#### MVP: Single Reviewer + Governance Metadata
+
+The Review Router exists but routes everything to a single general-purpose reviewer. The value of the Orchestration layer in MVP is not multi-agent — it's **governance metadata**:
+
+Every review finding carries:
+- Which agent produced it (even if there's only one)
+- What context was available (Tier 1/2/3)
+- What model was used
+- Confidence score
+- Timestamp and review request ID
+
+This metadata enables compliance audit trails from day one. When EU AI Act (August 2026) and Colorado AI Act (June 2026) deadlines arrive, we have the data structure already in place. Adding this metadata to findings is cheap; retrofitting it later is expensive.
+
+#### Post-MVP: Specialized Agents (Evidence-Gated)
+
+Add specialized agents only when we have evidence from MVP usage that specialization improves precision for specific finding categories:
 
 ```
                     ┌─────────────────┐
@@ -214,31 +276,7 @@ This is where Kenjutsu becomes something competitors cannot replicate. Every oth
      └────────────┘  └────────────┘  └────────────┘
 ```
 
-**Review Router** receives a `ReviewRequest` from Ingestion, determines which specialized agents should review based on file types, change patterns, and repository configuration. Routes in parallel.
-
-**Specialized Reviewers** each focus on one domain:
-- **Security Reviewer:** OWASP patterns, taint analysis, credential detection, dependency vulnerabilities. Uses AST-grep rules for deterministic pattern matching + LLM for semantic security reasoning.
-- **Performance Reviewer:** Algorithmic complexity, resource management, caching patterns, database query efficiency. Activated for files matching performance-sensitive paths.
-- **Architecture Reviewer:** API contract changes, dependency direction violations, module boundary crossings, naming/pattern consistency. Uses the code graph from Tier 2 context.
-
-**Key design choice:** Start with a single general-purpose reviewer in MVP. Add specialized agents incrementally. The Router's logic is simple initially (send everything to the general reviewer) but the routing interface exists from day one. This avoids the trap of building a monolithic reviewer and trying to decompose it later.
-
-#### Governance Layer
-
-**Innovation: Agent provenance and audit trails**
-
-Every review finding carries metadata:
-- Which agent produced it
-- What context was available
-- What model was used
-- Confidence score
-
-This enables:
-- **Proportional approval workflows:** High-risk findings (security critical, from high-confidence analysis) can block merge. Low-confidence style suggestions are advisory only.
-- **Compliance audit trails:** For regulated industries, every review decision is attributable and reproducible.
-- **Trust scoring:** Over time, build a trust profile per agent based on acceptance rates. Low-trust agents get their thresholds raised automatically.
-
-**Why this matters now:** EU AI Act (August 2026) and Colorado AI Act (June 2026) create regulatory demand for provenance tracking on AI-generated and AI-reviewed code. No competitor has this. The governance layer is cheap to build (metadata on findings) but expensive to retrofit.
+**Criteria for adding a specialized agent:** The general reviewer must demonstrate a measurable quality gap in a specific domain (e.g., missing security findings that a security-focused prompt would catch) across a significant sample of real reviews. We don't add agents because they sound good — we add them because the data says the general reviewer is leaving value on the table.
 
 ### 2.6 Publisher
 
@@ -248,28 +286,9 @@ This enables:
 
 **Dual output:**
 - **PR Review:** Inline comments on specific lines, suggestion blocks for one-click fixes, overall review summary
-- **Check Run:** Summary status (pass/fail), annotation count, rich markdown output. GitHub Apps exclusive — gives us the status check integration for branch protection.
+- **Check Run:** Summary status with annotations. GitHub Apps exclusive — gives us status check integration for branch protection.
 
-**Rate limit awareness:** The content creation limit (80 req/min, 500 req/hr) is the binding constraint. Batch aggressively. For large PRs, prioritize findings rather than exhaustively commenting.
-
-### 2.7 Index Subsystem
-
-**Approach: Pragmatic innovation — incremental, cost-efficient**
-
-The Index runs asynchronously, separate from the review hot path. It builds and maintains the codebase knowledge that Tier 2 and Tier 3 context retrieval consume.
-
-**Indexing pipeline:**
-1. tree-sitter AST parse → extract functions, classes, imports, type definitions
-2. Generate natural language descriptions per function (LLM call — one-time cost)
-3. Embed descriptions with Voyage-code-3 at 1024 dimensions
-4. Store in vector database (LanceDB embedded for MVP, Qdrant for scale)
-5. Build code graph: function calls, imports, type relationships
-
-**Incremental sync:** Content-hash each chunk. On file change, re-chunk, compare hashes, only re-embed changed chunks. Inspired by Cursor's Merkle tree approach. Reduces embedding API costs 90%+ for typical daily changes.
-
-**Trigger:** Re-index on PR creation against base branch. Full re-index on default branch merge. Staleness tolerance is higher for review tools than IDE tools — we don't need real-time indexing.
-
-**Trade-off:** The natural language description step adds an LLM call per function during indexing. For a 100K-function codebase, initial indexing costs ~$50-100 in LLM calls. Subsequent incremental updates are negligible. This is a worthwhile one-time investment for the 12% retrieval improvement.
+**Rate limit awareness:** Content creation limit (80 req/min, 500 req/hr) is the binding constraint. Batch aggressively. For large PRs, prioritize findings by severity rather than exhaustively commenting.
 
 ---
 
@@ -280,6 +299,7 @@ The Index runs asynchronously, separate from the review hot path. It builds and 
 ```
 1. GitHub sends pull_request webhook (opened/synchronize)
    └→ Webhook server verifies HMAC-SHA256 signature
+   └→ Debounce (30-60s for synchronize events)
    └→ Enqueues ReviewRequest to task queue
 
 2. Ingestion worker picks up task
@@ -293,8 +313,8 @@ The Index runs asynchronously, separate from the review hot path. It builds and 
    └→ Routes to reviewers in parallel
 
 4. Analysis (each reviewer independently):
-   └→ Tier 1 context retrieval (import graph, co-change, test files)
-   └→ [If indexed] Tier 2 context retrieval (semantic search, reranking)
+   └→ Tier 1 context retrieval via LlamaIndex custom retrievers
+   └→ [If indexed] Tier 2 retrieval via LlamaIndex built-in hybrid search
    └→ Renders prompt with diff + context + instructions
    └→ LLM call → structured findings
    └→ Self-reflection pass → filtered, scored findings
@@ -302,6 +322,7 @@ The Index runs asynchronously, separate from the review hot path. It builds and 
 5. Orchestration collects findings from all reviewers
    └→ Deduplicates across reviewers
    └→ Applies governance rules (severity thresholds, team config)
+   └→ Attaches provenance metadata to each finding
    └→ Ranks findings: critical → warning → info
 
 6. Publisher posts results
@@ -325,9 +346,9 @@ The Index runs asynchronously, separate from the review hot path. It builds and 
 
 ### Language: Python
 
-**Rationale:** Best LLM ecosystem (LiteLLM, tiktoken, Anthropic SDK), mature tree-sitter bindings (py-tree-sitter), FastAPI for async webhooks, PyGithub for GitHub API. PR-Agent's architecture (studied, not forked) is Python — learnings transfer directly.
+**Rationale:** Best LLM ecosystem (LiteLLM, tiktoken, Anthropic SDK), mature tree-sitter bindings (py-tree-sitter), FastAPI for async webhooks, PyGithub for GitHub API, LlamaIndex is Python-native. PR-Agent's architecture (studied, not forked) is Python — learnings transfer directly.
 
-**Alternative considered: TypeScript.** Closer to GitHub/VS Code ecosystem. Better for future IDE extensions. But weaker LLM library ecosystem and tree-sitter support in 2026. Revisit for IDE components post-MVP.
+**Alternative considered: TypeScript.** Closer to GitHub/VS Code ecosystem. Better for future IDE extensions. Mastra (DEM-114 evaluation) has strong RAG capabilities and is TypeScript-only, which means we lose access to it by choosing Python. However, LlamaIndex's retrieval depth is more important than Mastra's RAG+agent combination, and LlamaIndex is Python. Revisit TypeScript for IDE components post-MVP.
 
 ### Key Dependencies
 
@@ -335,20 +356,22 @@ The Index runs asynchronously, separate from the review hot path. It builds and 
 |---|---|---|
 | FastAPI | Webhook server | Async, high-performance, well-documented |
 | LiteLLM | Multi-LLM provider | 100+ providers, unified interface, avoids lock-in |
-| py-tree-sitter | AST parsing | Universal parser, production-proven (Neovim, Zed) |
+| LlamaIndex | Retrieval orchestration | Deepest retrieval primitives, code-specific extension points, 300+ integrations |
+| py-tree-sitter | AST parsing | Universal parser, production-proven (Neovim, Zed, Helix) |
 | tiktoken | Token counting | Fast, accurate, model-aware |
-| Voyage-code-3 | Code embeddings | SOTA for code retrieval, Matryoshka dimensions |
-| LanceDB | Vector storage (MVP) | Embedded, zero-infra, good Python support |
+| Voyage-code-3 | Code embeddings | SOTA for code retrieval, Matryoshka dimensions (via LlamaIndex integration) |
+| LanceDB | Vector storage (MVP) | Embedded, zero-infra, good Python support (via LlamaIndex integration) |
 | PyGithub | GitHub API | Mature, well-maintained |
 | Jinja2 | Prompt templates | Flexible conditional rendering |
-| Pydantic | Structured output | Type validation, JSON schema generation |
+| Pydantic | Structured output + config | Type validation, JSON schema generation, settings management |
 | Redis (or dramatiq) | Task queue | Async processing, debouncing |
 
 ### What We Explicitly Avoid
 
-- **Dynaconf** — PR-Agent's global state pattern (200+ `get_settings()` calls) is their worst architectural decision. Use explicit configuration injection via Pydantic settings.
+- **Dynaconf** — PR-Agent's global state pattern (200+ `get_settings()` calls) is their worst architectural decision. Use Pydantic Settings with explicit injection.
 - **Monolithic dependencies** — Use optional extras: `pip install kenjutsu[github]`, `kenjutsu[embeddings]`. Don't force boto3 on users who only need GitHub.
 - **Hardcoded command registry** — Design a plugin system from day one. Even if MVP has one review command, the extension point exists.
+- **Graph-RAG systems** (LightRAG, GraphRAG, R2R, Cognee) — Per DEM-114 evaluation, these use LLM entity extraction designed for prose documents, not code. Code graphs should be derived from AST parsing (tree-sitter), not LLM extraction. The cost difference is orders of magnitude and AST parsing is deterministically correct.
 
 ---
 
@@ -360,22 +383,18 @@ The Index runs asynchronously, separate from the review hot path. It builds and 
 
 ```toml
 [kenjutsu]
-# Review behavior
 auto_review = true              # Review on PR open/push
 review_on_draft = false         # Skip draft PRs
 severity_threshold = "warning"  # Minimum severity to comment (critical/warning/info)
 
 [kenjutsu.context]
-# Context depth
 tier = "auto"                   # auto | tier1 | tier2 | tier3
-# auto: Tier 1 always, Tier 2 for shared code, Tier 3 for high-risk
+# auto: Tier 1 always, Tier 2 for shared code, Tier 3 for high-risk changes
 
 [kenjutsu.ignore]
-# Files to skip
 paths = ["*.lock", "*.generated.*", "vendor/", "node_modules/"]
 
 [kenjutsu.model]
-# LLM selection (defaults to optimal choices)
 primary = "claude-sonnet-4-5"
 fallback = "gpt-4o"
 ```
@@ -391,21 +410,23 @@ fallback = "gpt-4o"
 | Decision | What We Gain | What We Risk | Mitigation |
 |---|---|---|---|
 | Build from scratch (not fork) | Clean IP, optimal architecture, no AGPL | 10-14 weeks vs 2-4 for fork | Study PR-Agent's patterns to avoid re-inventing solved problems |
-| Tiered context (not full index from day one) | Faster MVP, lower initial cost | Tier 1 quality gap vs Greptile | Tier 1 still beats diff-only significantly; Tier 2 planned for Phase 2 |
-| Multi-agent via Paperclip | Unique differentiation, governance capability | Coupling to Paperclip, orchestration overhead | Single-reviewer MVP works without multi-agent; agents add incrementally |
-| Natural language code descriptions | 12% retrieval improvement | LLM cost during indexing (~$50-100 for large codebases) | One-time cost, amortized across all reviews. Incremental re-indexing is cheap |
-| Python (not TypeScript) | Best LLM ecosystem, faster MVP | Weaker for future IDE extensions | IDE components can be TypeScript; core analysis stays Python |
-| Precision over recall | Developer trust, lower noise | May miss some real issues | Self-reflection pass catches most; feedback loop improves over time |
+| LlamaIndex for retrieval | 7 built-in capabilities, 4 custom components | API churn, abstraction overhead, LlamaCloud pressure | Insulation layer (`KenjutsuRetriever`), Haystack as migration target |
+| Tiered context (not full index from day one) | Faster MVP, lower initial cost, measurable per-tier impact | Tier 1 quality gap vs full-index competitors | Ship fast, measure, invest in tiers that demonstrably improve quality |
+| Multi-agent via Paperclip (evidence-gated) | Unique differentiation, governance capability | Complexity if activated prematurely | Single reviewer MVP; add agents only when data supports it |
+| Dual embedding (NL + raw code) | 12% retrieval improvement with fallback safety | 2x storage cost for embeddings | Storage is cheap; retrieval quality is expensive to fix |
+| Python (not TypeScript) | Best LLM + retrieval ecosystem, LlamaIndex native | Weaker for IDE extensions; loses access to Mastra | IDE components can be TypeScript; core analysis stays Python |
+| Precision over recall (<10% FP target) | Developer trust, lower noise | May miss some real issues | Self-reflection pass, severity ranking, feedback loop for continuous improvement |
 | GitHub-first (not multi-platform) | Focused effort, faster shipping | Excludes GitLab/Bitbucket users initially | Provider abstraction exists from day one; add platforms post-MVP |
 
 ### Decisions We Defer (and Why)
 
 | Decision | Deferral Rationale | When to Decide |
 |---|---|---|
-| Multi-repo intelligence | Requires significant index infrastructure; single-repo is sufficient for MVP and early adoption | After Tier 2 context is proven (Phase 3+) |
+| Multi-repo intelligence | Requires significant index infrastructure; single-repo is sufficient for MVP | After Tier 2 context is proven (Phase 3+) |
 | Pre-commit / IDE integration | Different integration surface; PR review is the established user expectation | After core review quality is validated |
-| Feedback loop learning | Needs volume of review data to be useful | After 1000+ reviews across real repositories |
-| Agentic multi-hop search (Tier 3) | High cost, complex implementation; Tier 1+2 covers most cases | After measuring Tier 2 impact on bug detection |
+| Feedback loop learning | Needs volume of review data to be useful; premature optimization of FP filtering | After 1000+ reviews across real repositories |
+| Specialized review agents | Need evidence of quality gaps in general reviewer by domain | After MVP review quality is measured across diverse PRs |
+| Tier 3 agentic search | High cost, complex implementation; Tier 1+2 may cover most value | After measuring Tier 2 impact on review quality |
 
 ---
 
@@ -421,56 +442,57 @@ fallback = "gpt-4o"
 - Configuration system (`.kenjutsu.toml` with defaults)
 - CLI for local testing
 
-**Exit criteria:** Can receive a PR webhook, fetch diff, process it, and post a raw diff summary as a PR comment.
+**Exit criteria:** Can receive a PR webhook, fetch diff, process it, and post a formatted diff summary as a PR comment.
 
 ### Phase 2: Review Intelligence (Weeks 5-8)
 
 **Goal:** Meaningful review quality with Tier 1 context and false positive filtering.
 
-- LLM integration via LiteLLM, prompt templates, structured output
+- LLM integration via LiteLLM, Jinja2 prompt templates, Pydantic structured output
 - Review engine (severity scoring, finding generation, Markdown formatting)
-- Tier 1 context (tree-sitter import graph, dynamic hunk extension, co-change analysis)
+- Tier 1 context via custom LlamaIndex components (tree-sitter import graph, hunk extension, co-change analysis, test file matching)
 - Self-reflection pass for false positive filtering
 - Publisher (pending review pattern, Check Runs)
 
 **Exit criteria:** Reviews real PRs with context-aware findings, severity ranking, and <10% false positive rate. Posts as a proper GitHub review with inline comments.
 
-### Phase 3: Polish & Hardening (Weeks 9-12)
+### Phase 3: Production Hardening (Weeks 9-12)
 
-**Goal:** Production-ready MVP.
+**Goal:** Production-ready MVP with governance metadata.
 
-- Prompt engineering iteration on real PRs (target: <5% FP rate)
+- Prompt engineering iteration on real PRs (target: improve FP rate continuously)
 - Large PR handling (multi-patch mode), edge cases, error handling
 - Paperclip orchestration integration (Review Router, single general reviewer)
-- Governance metadata on findings (agent, model, confidence)
+- Governance metadata on all findings (agent, model, context tier, confidence)
 - Deployment packaging (Docker), documentation
-- Internal benchmark suite
+- Internal benchmark suite for quality measurement
 
-**Exit criteria:** Can be installed on real repositories. Governance metadata attached to all findings. Deployable via Docker.
+**Exit criteria:** Installable on real repositories. Governance metadata attached to all findings. Benchmarked against PR-Agent and CodeRabbit on a standard PR set.
 
 ### Phase 4: Context Depth (Weeks 13-16, Post-MVP)
 
-**Goal:** Tier 2 context for significantly improved bug detection.
+**Goal:** Tier 2 context for measurably improved review quality.
 
-- Index subsystem: tree-sitter AST → natural language descriptions → Voyage-code-3 embeddings
-- Incremental indexing with content-hash caching
-- Hybrid BM25 + vector retrieval, cross-encoder reranking
+- Index subsystem: tree-sitter AST → NL descriptions + raw code embeddings → Voyage-code-3
+- LlamaIndex indexing pipeline with incremental content-hash caching
+- Hybrid BM25 + vector retrieval via `QueryFusionRetriever`, cross-encoder reranking
+- `RouterQueryEngine` for automatic tier selection
 - Prompt caching optimization
-- Performance benchmarking vs competitors
+- A/B comparison: Tier 1 only vs Tier 1+2 on the same PR set
 
-**Exit criteria:** Full codebase context during review. Measurable improvement in bug detection rate over Tier 1 baseline.
+**Exit criteria:** Measurable improvement in review quality over Tier 1 baseline (bug detection rate, finding relevance, developer acceptance rate).
 
 ### Phase 5: Multi-Agent & Governance (Weeks 17-20, Post-MVP)
 
-**Goal:** Specialized review agents and enterprise governance.
+**Goal:** Specialized review agents (if evidence supports) and enterprise governance.
 
-- Security Reviewer agent (AST-grep patterns + LLM security reasoning)
-- Performance Reviewer agent
-- Review Router with file-type-based routing
-- Governance dashboard (finding provenance, trust scores)
+- Analyze MVP review data for quality gaps by domain (security, performance, architecture)
+- If gaps exist: build specialized reviewer agents with domain-focused prompts
+- Review Router with file-type and change-pattern-based routing
+- Governance dashboard (finding provenance, trust scores, audit trails)
 - GitHub Action distribution for zero-infra onboarding
 
-**Exit criteria:** Multiple specialized agents reviewing PRs in parallel. Governance audit trail complete for compliance use cases.
+**Exit criteria:** Evidence-based decision on specialized agents. Governance audit trail complete for compliance use cases. Two distribution channels (App + Action).
 
 ---
 
@@ -498,13 +520,11 @@ fallback = "gpt-4o"
 
 ### LLM Cost per Review (Claude Sonnet 4.5, primary)
 
-| PR Size | Input Tokens | Output Tokens | Cost (no caching) | Cost (with caching) |
+| PR Size | Input Tokens | Output Tokens | Cost (no caching) | Cost (with prompt caching) |
 |---|---|---|---|---|
 | Small (1-5 files) | ~30K | ~3K | $0.14 | $0.06 |
 | Typical (5-15 files) | ~60K | ~5K | $0.26 | $0.10 |
 | Large (15-50 files, multi-patch) | ~200K | ~15K | $0.83 | $0.31 |
-
-**Prompt caching reduces ongoing LLM costs by 60-90%.** The system prompt + codebase index summary is stable across reviews within the same repository. This is the single most impactful cost optimization.
 
 ---
 
@@ -514,44 +534,42 @@ fallback = "gpt-4o"
 
 | Risk | Likelihood | Impact | Why We Accept It |
 |---|---|---|---|
-| Prompt engineering iteration takes longer than budgeted | High | Medium | This is empirical work, not architecture. Budget 3-4 weeks. The risk is schedule, not feasibility. |
-| Tier 1 context quality gap vs Greptile | High | Medium | Tier 1 still beats diff-only. Tier 2 is planned. We compete on precision, not just detection rate. |
-| Paperclip dependency for multi-agent | Medium | Medium | Single-reviewer mode works standalone. Multi-agent is additive differentiation, not a prerequisite. |
+| Prompt engineering iteration takes longer than budgeted | High | Medium | This is empirical work, not architecture. The risk is schedule, not feasibility. Budget 3-4 weeks. |
+| Tier 1 context quality gap vs Greptile | High | Medium | Tier 1 still beats diff-only. We compete on precision initially, not detection breadth. Tier 2 is planned. |
+| LlamaIndex API churn impacts custom components | Medium | Medium | Insulation layer limits blast radius. Haystack is migration target. Pin versions. |
 
 ### Risks We Mitigate
 
 | Risk | Mitigation |
 |---|---|
-| False positive rate above target | Two-pass review (generation + self-reflection). Severity ranking. Feedback loop post-MVP. Design for precision from day one. |
-| LLM API reliability | Fallback chain across providers (Claude → GPT-4o). Retry with exponential backoff. Different model families reduce correlated failures. |
-| Context window management | Rigorous token counting before every call. Graceful degradation (reduce context, don't fail). Model-aware limits, not artificial caps. |
-| GitHub rate limits | Pending review pattern (batch comments). Check Run annotations (50 per call). Debounce on PR updates (30-60s wait). |
-| IP/legal risk from studying PR-Agent | Clean-room reimplementation. Study patterns and strategies, not code. No post-AGPL code contact. Legal review of prompt engineering reuse. |
+| False positive rate above target | Two-pass review + severity ranking + feedback loop (post-MVP). Target <10% for MVP, iterate toward <5%. |
+| LLM API reliability | Cross-provider fallback (Claude → GPT-4o). Retry with exponential backoff. |
+| LlamaIndex commercial pressure | Insulation layer + Haystack migration target + MIT license fork option. |
+| GitHub rate limits | Pending review pattern, Check Run annotations, debounce on updates. |
+| IP risk from studying PR-Agent | Clean-room reimplementation. Study patterns only. No post-AGPL code. |
 
 ### Risks We Avoid
 
-| Risk | How We Avoid It |
+| Risk | How |
 |---|---|
-| AGPL contamination | Build from scratch. No fork. Study only, implement independently. |
-| Vendor lock-in | LiteLLM for LLM providers. Provider abstraction for git platforms. Standard vector DB interfaces. |
-| Premature scaling | MVP runs on a single container. Scale when we have users, not before. |
-| Feature bloat | MVP is `/review` only. No `/describe`, `/improve`, `/ask` until core review quality is proven. |
+| AGPL contamination | Build from scratch. No fork. |
+| Vendor lock-in | LiteLLM for LLMs, LlamaIndex abstraction for retrieval, provider abstraction for git platforms. |
+| Premature multi-agent complexity | Evidence-gated: single reviewer first, add agents only when data supports it. |
+| Over-engineering the MVP | Feature scope: `/review` only. No `/describe`, `/improve`, `/ask` until core quality is proven. |
 
 ---
 
 ## 10. What Makes This "Balanced"
 
-This architecture is balanced because it makes different bets at different layers:
+This architecture earns the "balanced" label through three specific mechanisms:
 
-**We bet conservatively on infrastructure** — GitHub App, Python, FastAPI, Redis, Docker. These are boring, proven choices. The failure mode is "it doesn't work" and the blast radius is "the team wastes time." Boring infrastructure reduces that risk to near-zero.
+**Evidence-gated investment.** We don't build capabilities because they sound good. Each tier of context depth, each specialized agent, each advanced retrieval feature requires evidence of impact before it moves from "designed" to "built." The interfaces exist from day one; the implementations follow the data.
 
-**We bet pragmatically on context** — Tiered retrieval lets us ship with Tier 1 (free, heuristic) and add Tier 2 (embeddings, semantic search) when we have the data to justify it. We don't gamble on full-repo indexing working at scale before proving basic review quality.
+**Layered risk.** Conservative at the foundation (proven infrastructure, clean IP, standard tools), pragmatic in the middle (LlamaIndex with insulation, tiered context with measurement), ambitious at the differentiation layer (Paperclip governance, multi-agent orchestration). Failure at any layer doesn't cascade — you can run a useful review tool with just Tiers 1 and 2, a single reviewer, and no governance metadata.
 
-**We bet ambitiously on orchestration** — Multi-agent review via Paperclip is genuinely novel. No competitor has this. The risk is that the multi-agent overhead outweighs the specialization benefit, but the mitigation is clean: single-reviewer MVP works without it, and we add agents incrementally based on evidence.
+**Honest about what we don't know.** We don't know if <5% FP is achievable without a feedback loop. We don't know if Tier 2 context depth justifies its cost. We don't know if specialized agents beat a single well-prompted reviewer. The architecture doesn't pretend to know these things — it creates the structure to learn them quickly.
 
-**We bet ambitiously on governance** — The regulatory tailwind (EU AI Act, Colorado AI Act) creates demand that doesn't exist yet but will by the time we ship Phase 5. Building governance metadata into findings from Phase 3 is cheap insurance against an expensive retrofit.
-
-The result: a system that is useful from week 8 (basic review with good precision), differentiated by week 16 (deep context + multi-agent), and enterprise-ready by week 20 (governance + compliance). Each phase delivers standalone value — no phase depends on a future phase to be useful.
+The result: a system that is useful from week 8 (basic review with Tier 1 context and severity ranking), measurably better by week 16 (Tier 2 context with A/B data), and enterprise-ready by week 20 (governance + compliance). Each phase delivers standalone value and generates data for the next phase's investment decisions.
 
 ---
 
@@ -559,8 +577,9 @@ The result: a system that is useful from week 8 (basic review with good precisio
 
 This architecture synthesizes findings from:
 - Competitive analysis (DEM-105): Market positioning, pricing, feature gaps
-- PR-Agent deep-dive (DEM-106): Architecture patterns, diff processing, prompt engineering
+- PR-Agent deep-dive (DEM-106): Architecture patterns, diff processing, prompt engineering, AGPL finding
 - GitHub integration (DEM-107): App vs Action, rate limits, API patterns
 - Context/RAG strategies (DEM-108): Embedding approaches, chunking, retrieval pipelines
 - Differentiation (DEM-109): Market gaps, positioning options, governance opportunity
 - Technical feasibility (DEM-110): Build vs fork, MVP scope, timeline, cost projections
+- Retrieval framework evaluation (DEM-114): LlamaIndex recommendation, 10-framework comparison, graph-RAG category mismatch finding
