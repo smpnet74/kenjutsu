@@ -4,9 +4,88 @@
 
 **Goal:** Build Kenjutsu, an AI-powered PR review SaaS product, following the v3 architecture spec.
 
-**Architecture Spec:** `x-spec/kenjutsu-architecture-v3.md`
+**Architecture Spec:** `research/kenjutsu-architecture-v3.md` (in the Kenjutsu repo)
 
 **Product Repo:** https://github.com/smpnet74/kenjutsu
+
+---
+
+## Repo State (as of scaffold merge)
+
+**READ THIS BEFORE STARTING WORK.** The repo is not empty. The following has already been built, tested, reviewed by CodeRabbit, and merged to `main`.
+
+### What exists
+
+| Component | Status | Location |
+|-----------|--------|----------|
+| Pixi workspace (Python 3.12, conda-forge) | Done | `pyproject.toml`, `pixi.lock` |
+| 7-gate CI pipeline with path filtering | Done | `.github/workflows/ci.yml` |
+| CodeRabbit config (15 path instructions, 3 custom checks) | Done | `.coderabbit.yaml` |
+| FastAPI entry point with `/health` endpoint | Done | `kenjutsu/app.py` |
+| Finding model with 5-dimension signal taxonomy | Done | `kenjutsu/models/findings.py` |
+| Signal taxonomy enums (Origin, Confidence, Severity, Category, Publishability) | Done | `kenjutsu/models/findings.py` |
+| Finding fingerprints (stable, case/whitespace insensitive) | Done | `kenjutsu/models/findings.py` |
+| 16 unit tests covering taxonomy and fingerprint behavior | Done | `tests/unit/test_models.py` |
+| Dockerfile (multi-stage, health check) | Done | `Dockerfile` |
+| Architecture spec v3 | Done | `research/kenjutsu-architecture-v3.md` |
+| Implementation plan | Done | `research/kenjutsu-implementation-plan.md` |
+
+### Package structure (follow this layout)
+
+The CodeRabbit config has path-specific review instructions for each of these modules. **New code must go in the matching directory** so CodeRabbit applies the correct review guidance.
+
+```
+kenjutsu/
+  app.py              # FastAPI entry point (exists)
+  models/
+    __init__.py        # Exports Finding + enums (exists)
+    findings.py        # Signal taxonomy + fingerprints (exists)
+  server/              # Webhook reception, HMAC verification, debounce
+  github/              # GitHub App auth, API client, review publishing
+  pipeline/            # Review pipeline steps, sha guard, workflow orchestration
+  context/             # Structural context extraction (tree-sitter, imports, callers)
+  analysis/            # Deterministic analysis (AST-grep patterns, structural checks)
+  review/              # LLM review engine, prompt templates, structured output
+  evidence/            # Evidence scoring, cross-model self-reflection
+  publisher/           # GitHub review/Check Run publishing, redaction
+  config/              # .kenjutsu.yaml parsing, defaults
+  db/                  # PostgreSQL schema, Alembic migrations
+  mirror/              # Bare mirror management (clone, fetch, diff, read)
+tests/
+  unit/                # Fast, no network, no DB
+    test_models.py     # Signal taxonomy tests (exists, 16 tests)
+  integration/         # Requires PostgreSQL
+    test_placeholder.py # Placeholder (exists, replace with real tests)
+```
+
+### CI gates (already enforced)
+
+| Gate | Runs When | Tool |
+|------|-----------|------|
+| Lint | Code changes | ruff check + format |
+| Type check | Code changes | pyright |
+| Security | Code changes | bandit + pip-audit |
+| Unit tests | Code changes | pytest tests/unit/ |
+| Integration tests | Code changes | pytest tests/integration/ (PostgreSQL service) |
+| Coverage | Tests run | coverage threshold (80% target) |
+| Docker build | Dockerfile or app code changes | docker build |
+| ci-pass | Always | Aggregates all triggered gates |
+
+Non-code PRs (research/, docs/, .md files) skip heavy gates automatically.
+
+### Pixi tasks (use these, not raw commands)
+
+```
+pixi run -e dev lint          # ruff check + format check
+pixi run -e dev format        # auto-format
+pixi run -e dev typecheck     # pyright
+pixi run -e dev test          # unit tests
+pixi run -e dev test-integration  # integration tests
+pixi run -e dev test-all      # all tests with coverage
+pixi run -e dev security      # bandit
+pixi run -e dev ci            # all gates
+pixi run serve                # start FastAPI dev server
+```
 
 ---
 
@@ -73,26 +152,29 @@ Set up the Kenjutsu repo with the Python project structure, CI pipeline, and dep
 
 **Sub-issues:**
 
-**a) Initialize Python project structure**
-Assigned to: DevOps Engineer
-- Initialize pixi workspace with Python 3.12+, FastAPI, pytest
-- Create package structure: `kenjutsu/` with `server/`, `pipeline/`, `github/`, `config/`, `db/`
-- Add `.gitignore`, `pixi.toml`, `pixi.lock`
-- Add `Dockerfile` and `docker-compose.yml` (app + PostgreSQL)
-- Acceptance: `pixi run serve` starts FastAPI on localhost, `pixi run test` runs empty test suite green
+**a) Initialize Python project structure — COMPLETE**
+~~Assigned to: DevOps Engineer~~
+- ~~Initialize pixi workspace with Python 3.12+, FastAPI, pytest~~
+- ~~Create package structure, add `.gitignore`, `pixi.lock`~~
+- ~~Add `Dockerfile` with multi-stage build and health check~~
+- ~~Acceptance: `pixi run serve` starts FastAPI on localhost, `pixi run -e dev test` runs 16 tests green~~
+- **Done.** Merged in PR #17. FastAPI app at `kenjutsu/app.py`, Finding model at `kenjutsu/models/findings.py`, 16 passing tests.
 
 **b) PostgreSQL schema and migrations**
 Assigned to: Senior Engineer A (Backend)
 - Create initial schema: `installations`, `repos`, `reviews`, `findings`, `suppressions`, `webhook_events`, `audit_log`
-- Use Alembic for migrations
+- Use Alembic for migrations within the existing pixi workspace (`pixi add alembic psycopg sqlalchemy` when starting this issue)
 - All tables include `installation_id` scoping per v3 spec Section 10
+- Place migration code in `kenjutsu/db/` (matches CodeRabbit path instruction)
 - Acceptance: `alembic upgrade head` runs clean, schema matches spec
 
-**c) CI pipeline**
-Assigned to: DevOps Engineer
-- GitHub Actions: lint (ruff), type check (pyright), test (pytest), build Docker image
-- Branch protection: require CI pass on PRs
-- Acceptance: PR to main triggers full CI, green on empty project
+**c) CI pipeline — COMPLETE**
+~~Assigned to: DevOps Engineer~~
+- ~~7-gate CI: lint (ruff), type check (pyright), security (bandit + pip-audit), unit tests, integration tests (PostgreSQL), coverage, Docker build~~
+- ~~Path filtering: non-code PRs skip heavy gates~~
+- ~~CodeRabbit config with 15 path instructions and 3 custom pre-merge checks~~
+- ~~Branch protection: require ci-pass job~~
+- **Done.** Merged in PR #16 and #17. Validated through 3 rounds of CodeRabbit review.
 
 ---
 
@@ -252,13 +334,12 @@ Assigned to: Senior Engineer A
 - Ref: v3 spec Section 4.2
 - Acceptance: Stale sha detected → review aborted, not published. Tested with simulated mid-review push.
 
-**b) Finding fingerprints**
+**b) Finding fingerprints — PARTIALLY COMPLETE**
 Assigned to: Senior Engineer D
-- `sha256(file_path + finding_category + normalized_description_hash + code_context_hash)`
-- Normalization: lowercase, strip whitespace, key-phrase extraction
-- Line numbers NOT in fingerprint
+- Core implementation exists in `kenjutsu/models/findings.py` — `sha256(file_path + category + normalized_description)`, case/whitespace insensitive, line numbers excluded. 6 unit tests passing.
+- **Remaining work:** Add `code_context_hash` to the fingerprint (currently uses description only). This improves stability when LLM rephrases the same finding differently.
 - Ref: v3 spec Section 4.3
-- Acceptance: Same finding on same code produces same fingerprint across reruns. Line-shifted code doesn't change fingerprint.
+- Acceptance: Same finding on same code produces same fingerprint even if LLM rewords the description.
 
 **c) Idempotent publishing**
 Assigned to: Senior Engineer A
@@ -599,16 +680,17 @@ Assigned to: Senior Engineer D
 
 ---
 
-### 2.7 Signal Taxonomy Implementation
+### 2.7 Signal Taxonomy Implementation — PARTIALLY COMPLETE
 
 **Assigned to:** Engineering Manager → Senior Engineer D
 **Priority:** High
 
-**a) Finding model**
-Assigned to: Senior Engineer D
-- Pydantic model with all 5 dimensions: origin, confidence, severity, category, publishability
-- One canonical severity enum (`critical`, `warning`, `suggestion`) used everywhere
-- Acceptance: Finding model validates correctly. Enum consistency verified across publisher, DB, config.
+**a) Finding model — COMPLETE**
+~~Assigned to: Senior Engineer D~~
+- ~~Pydantic model with all 5 dimensions: origin, confidence, severity, category, publishability~~
+- ~~One canonical severity enum (`critical`, `warning`, `suggestion`) used everywhere~~
+- **Done.** `kenjutsu/models/findings.py` has all 5 enums + Finding model + computed fingerprint. 16 unit tests covering enum values, model creation, fingerprint stability.
+- **Remaining work:** Verify enum consistency when publisher, DB schema, and config modules are built. Those modules must import from `kenjutsu.models` — do NOT redefine enums elsewhere.
 
 ---
 
