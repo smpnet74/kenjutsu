@@ -68,9 +68,7 @@ def _finding_comment_body(finding: Finding) -> str:
     lines.append("")
 
     fingerprint = "[REDACTED]" if is_redacted else f"`{finding.fingerprint}`"
-    lines.append(
-        f"*origin: {finding.origin} · confidence: {finding.confidence} · fingerprint: {fingerprint}*"
-    )
+    lines.append(f"*origin: {finding.origin} · confidence: {finding.confidence} · fingerprint: {fingerprint}*")
     return "\n".join(lines)
 
 
@@ -265,9 +263,7 @@ async def publish_review(
                 head_sha,
                 current_sha,
             )
-            raise ValueError(
-                f"Head SHA mismatch for PR #{pr_number}: expected {head_sha}, got {current_sha}"
-            )
+            raise ValueError(f"Head SHA mismatch for PR #{pr_number}: expected {head_sha}, got {current_sha}")
 
         # ------------------------------------------------------------------
         # 3. Ensure the GitHub review exists
