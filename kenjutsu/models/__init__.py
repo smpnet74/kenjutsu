@@ -16,7 +16,7 @@ __all__ = [
     "Finding",
     "Origin",
     "Publishability",
-    "Severity",
     "Review",
     "ReviewStatus",
+    "Severity",
 ]
