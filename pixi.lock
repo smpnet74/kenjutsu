@@ -589,7 +589,7 @@ packages:
 - pypi: ./
   name: kenjutsu
   version: 0.1.0
-  sha256: 243603ec2204edd5d053524c2a9ba07af669eace08011ad881420c6c4f25a6f6
+  sha256: 421b2f9dd7ca8891d32758babaf7f527269ac42201cf78a0a87e1f2cb782fc98
   requires_dist:
   - fastapi>=0.115,<1
   - uvicorn[standard]>=0.34,<1
