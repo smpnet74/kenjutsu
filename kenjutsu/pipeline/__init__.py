@@ -1,7 +1,10 @@
-"""Pipeline orchestration package.
+"""Kenjutsu PR review pipeline.
 
-Business logic lives here as plain async functions — no DBOS imports.
-The thin step/workflow wrappers that add durability live in steps.py.
+Public API:
+- Types: PrMetadata, ReviewRequest, StructuralContext, ReviewResult, ReviewStatus
+- Business logic: plain async functions in logic.py (no framework deps)
+- Step wrappers: DBOS-decorated functions in steps.py (framework boundary)
+- SHA guard: entry/exit guards for stale-push detection
 """
 
 from kenjutsu.pipeline.sha_guard import (
@@ -11,10 +14,16 @@ from kenjutsu.pipeline.sha_guard import (
     entry_guard,
     exit_guard,
 )
+from kenjutsu.pipeline.types import PrMetadata, ReviewRequest, ReviewResult, ReviewStatus, StructuralContext
 
 __all__ = [
     "GuardResult",
+    "PrMetadata",
     "PrRef",
+    "ReviewRequest",
+    "ReviewResult",
+    "ReviewStatus",
+    "StructuralContext",
     "check_sha_current",
     "entry_guard",
     "exit_guard",
