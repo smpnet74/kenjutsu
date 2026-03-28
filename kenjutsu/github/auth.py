@@ -38,7 +38,7 @@ class GitHubAppAuth:
     """
 
     app_id: int
-    private_key_pem: str
+    private_key_pem: str = field(repr=False)
     http_client: httpx.AsyncClient | None = field(default=None, repr=False)
 
     _token_cache: dict[int, _CachedToken] = field(default_factory=dict, init=False, repr=False)
