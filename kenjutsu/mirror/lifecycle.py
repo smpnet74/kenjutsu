@@ -54,8 +54,15 @@ class MirrorConfig:
 
 
 def mirror_path(config: MirrorConfig, repo_id: str) -> Path:
-    """Return the filesystem path for a repo's bare mirror."""
-    return config.storage_path / repo_id
+    """Return the filesystem path for a repo's bare mirror.
+
+    Validates that the resolved path stays within storage_path to prevent
+    path traversal via repo_id values containing '../' or absolute paths.
+    """
+    dest = (config.storage_path / repo_id).resolve()
+    if not dest.is_relative_to(config.storage_path.resolve()):
+        raise ValueError(f"Invalid repo_id: {repo_id!r}")
+    return dest
 
 
 def clone_mirror(
@@ -76,6 +83,8 @@ def clone_mirror(
     dest = mirror_path(config, repo_id)
     if dest.exists():
         raise MirrorAlreadyExistsError(f"Mirror already exists at {dest}")
+
+    dest.parent.mkdir(parents=True, exist_ok=True)
 
     cmd = ["git", "clone", "--bare"]
     if repo_size_bytes >= config.large_repo_threshold_bytes:
