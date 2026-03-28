@@ -319,8 +319,8 @@ class TestPublishReviewFirstPublish:
             mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
             await publish_review(session, review.id, INSTALLATION_ID, "gh_token_test")
 
-        # Only the SHA check GET, no review or comment POST
-        assert client.post.call_count == 0
+        # Only the review POST, no comment POST
+        assert client.post.call_count == 1
         assert suppressed.published is False
 
     @pytest.mark.asyncio
