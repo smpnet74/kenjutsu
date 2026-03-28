@@ -185,7 +185,7 @@ _PIPELINE_FINDINGS: dict[str, list[Finding]] = {
         _f("src/other.py", 99),  # FP — wrong file
     ],
     "org_repo_3": [],  # miss
-    "org_repo_4": [_f("src/clean.py", 1)],  # FP — no expected
+    "org_repo_4": [_f("src/clean.py", 1), _f("src/noise.py", 50)],  # 2 FPs — no expected
     "org_repo_5": [_f("src/models.py", 205)],  # TP — overlaps (200-210)
 }
 
@@ -236,9 +236,9 @@ async def test_run_eval_correct_tp_fp_miss_counts() -> None:
     assert len(by_id["org_repo_3"].false_positives) == 0
     assert len(by_id["org_repo_3"].missed) == 1
 
-    # PR4: 0 TP, 1 FP, 0 miss
+    # PR4: 0 TP, 2 FP, 0 miss
     assert len(by_id["org_repo_4"].true_positives) == 0
-    assert len(by_id["org_repo_4"].false_positives) == 1
+    assert len(by_id["org_repo_4"].false_positives) == 2
     assert len(by_id["org_repo_4"].missed) == 0
 
     # PR5: 1 TP, 0 FP, 0 miss
@@ -252,11 +252,13 @@ async def test_compute_metrics_after_run_eval() -> None:
     pipeline = MockPipeline(_PIPELINE_FINDINGS)
     results = await run_eval(_CORPUS, pipeline)
     metrics = compute_metrics(results)
-    # 3 TPs out of (3 TPs + 2 misses) = 60%
+    # accepted_finding_rate = TP / (TP + FP) = 3 / (3 + 3) = 0.5
+    # recall = TP / (TP + missed) = 3 / (3 + 2) = 0.6
     assert metrics.total_true_positives == 3
     assert metrics.total_missed == 2
-    assert metrics.total_false_positives == 2
-    assert metrics.accepted_finding_rate == pytest.approx(3 / 5)
+    assert metrics.total_false_positives == 3
+    assert metrics.accepted_finding_rate == pytest.approx(3 / 6)
+    assert metrics.recall == pytest.approx(3 / 5)
 
 
 @pytest.mark.asyncio
@@ -274,7 +276,7 @@ async def test_write_report_integration(tmp_path: Path) -> None:
     data = json.loads(json_path.read_text())
     assert data["pr_count"] == 5
     assert data["totals"]["true_positives"] == 3
-    assert data["totals"]["false_positives"] == 2
+    assert data["totals"]["false_positives"] == 3
     assert data["totals"]["missed"] == 2
     assert len(data["per_pr"]) == 5
 

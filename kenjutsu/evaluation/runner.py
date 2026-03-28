@@ -129,7 +129,7 @@ class EvalMetrics:
 
     Targets:
         comments_per_pr_defects:    < 8    (defect-only findings)
-        accepted_finding_rate:      > 0.60 (TP / (TP + missed))
+        accepted_finding_rate:      > 0.60 (TP / (TP + FP) — precision)
         fp_rate_verified:           < 0.01 (verified-confidence FPs / total findings)
         fp_rate_high_confidence:    < 0.10 (high-or-better confidence FPs / total findings)
         latency_p50_seconds:        < 30s
@@ -145,7 +145,8 @@ class EvalMetrics:
 
     # Appendix D metrics
     comments_per_pr_defects: float  # average defect findings per PR
-    accepted_finding_rate: float  # TP / (TP + missed); 0-1
+    accepted_finding_rate: float  # TP / (TP + FP); 0-1 (precision — of produced, how many were correct)
+    recall: float  # TP / (TP + missed); 0-1 (of expected, how many were found)
     fp_rate_verified: float  # verified-confidence FPs / total produced
     fp_rate_high_confidence: float  # high+ confidence FPs / total produced
     latency_p50_seconds: float
@@ -274,9 +275,13 @@ def compute_metrics(results: list[EvalResult]) -> EvalMetrics:
     defect_counts = [sum(1 for f in r.findings_produced if f.category in _DEFECT_CATEGORIES) for r in results]
     comments_per_pr_defects = statistics.mean(defect_counts)
 
-    # Accepted-finding rate: TP / (TP + missed)
-    denominator = total_true_positives + total_missed
-    accepted_finding_rate = total_true_positives / denominator if denominator > 0 else 0.0
+    # Accepted-finding rate: TP / (TP + FP) — precision (of produced, how many were correct)
+    afr_denominator = total_true_positives + total_false_positives
+    accepted_finding_rate = total_true_positives / afr_denominator if afr_denominator > 0 else 0.0
+
+    # Recall: TP / (TP + missed) — of expected, how many were found
+    recall_denominator = total_true_positives + total_missed
+    recall = total_true_positives / recall_denominator if recall_denominator > 0 else 0.0
 
     # FP rates
     fp_verified = [f for r in results for f in r.false_positives if f.confidence == Confidence.VERIFIED]
@@ -308,6 +313,7 @@ def compute_metrics(results: list[EvalResult]) -> EvalMetrics:
         total_missed=total_missed,
         comments_per_pr_defects=comments_per_pr_defects,
         accepted_finding_rate=accepted_finding_rate,
+        recall=recall,
         fp_rate_verified=fp_rate_verified,
         fp_rate_high_confidence=fp_rate_high_confidence,
         latency_p50_seconds=latency_p50,

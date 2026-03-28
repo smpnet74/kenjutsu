@@ -273,19 +273,36 @@ class TestComputeMetrics:
         assert m.total_missed == 0
         assert m.accepted_finding_rate == 1.0
 
-    def test_accepted_finding_rate_zero_when_all_missed(self) -> None:
-        ann = _annotated()
+    def test_accepted_finding_rate_zero_when_all_fp(self) -> None:
+        # No TPs, all produced are FPs → precision = 0/(0+FP) = 0.0
+        f = _finding(file_path="src/other.py")
         r = _result(
-            findings_produced=[],
-            expected_findings=[ann],
+            findings_produced=[f],
+            expected_findings=[],
             true_positives=[],
-            false_positives=[],
-            missed=[ann],
+            false_positives=[f],
+            missed=[],
         )
         m = compute_metrics([r])
         assert m.accepted_finding_rate == 0.0
 
     def test_accepted_finding_rate_partial(self) -> None:
+        # 1 TP, 1 FP → accepted_finding_rate = TP/(TP+FP) = 1/2 = 0.5
+        tp_f = _finding()
+        fp_f = _finding(file_path="src/other.py")
+        ann = _annotated()
+        r = _result(
+            findings_produced=[tp_f, fp_f],
+            expected_findings=[ann],
+            true_positives=[tp_f],
+            false_positives=[fp_f],
+            missed=[],
+        )
+        m = compute_metrics([r])
+        assert m.accepted_finding_rate == pytest.approx(0.5)
+
+    def test_recall_partial(self) -> None:
+        # 1 TP, 1 missed → recall = TP/(TP+missed) = 1/2 = 0.5
         f = _finding()
         ann1 = _annotated()
         ann2 = _annotated(line_range=(100, 100))
@@ -297,7 +314,7 @@ class TestComputeMetrics:
             missed=[ann2],
         )
         m = compute_metrics([r])
-        assert m.accepted_finding_rate == pytest.approx(0.5)
+        assert m.recall == pytest.approx(0.5)
 
     def test_comments_per_pr_defects_only(self) -> None:
         # BUG (defect), SECURITY (defect), STYLE (not defect)
@@ -425,11 +442,12 @@ class TestComputeMetrics:
         assert m.fp_rate_verified == 0.0
         assert m.fp_rate_high_confidence == 0.0
 
-    def test_no_expected_zero_denominator_for_accepted_rate(self) -> None:
-        # No expected findings — accepted_finding_rate should be 0 not error
+    def test_no_findings_zero_denominator_for_accepted_rate(self) -> None:
+        # No findings produced (TP=0, FP=0) — accepted_finding_rate should be 0 not divide-by-zero
         r = _result(findings_produced=[], expected_findings=[], missed=[])
         m = compute_metrics([r])
         assert m.accepted_finding_rate == 0.0
+        assert m.recall == 0.0
 
 
 # ---------------------------------------------------------------------------
