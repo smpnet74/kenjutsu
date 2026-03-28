@@ -112,7 +112,9 @@ jobs:
         run: pixi run -e dev security
 
       - name: pip-audit — dependency vulnerability scan
-        run: pixi run -e dev -- pip-audit --strict
+        # CVE-2026-4539 (pygments): no fix version available; ignored pending upstream patch.
+        # All other vulnerabilities fail the build (--strict).
+        run: pixi run -e dev -- pip-audit --strict --ignore-vuln CVE-2026-4539
 
   # ===========================================================================
   # Gate: Secret Scanning (always runs on code or infra changes)
