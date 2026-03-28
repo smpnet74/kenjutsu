@@ -25,7 +25,7 @@ from kenjutsu.pipeline.sha_guard import (
     exit_guard,
 )
 
-_TOKEN = "ghp_test_token"  # noqa: S105
+_TOKEN = "ghp_test_token"
 _OWNER = "acme"
 _REPO = "myapp"
 _PR = 42
