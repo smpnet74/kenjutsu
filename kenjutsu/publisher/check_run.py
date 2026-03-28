@@ -58,7 +58,7 @@ def _finding_to_annotation(finding: Finding) -> dict:
         "path": finding.file_path,
         "start_line": finding.line_start,
         "end_line": finding.line_end,
-        "annotation_level": _SEVERITY_TO_LEVEL[finding.severity],
+        "annotation_level": _SEVERITY_TO_LEVEL.get(finding.severity, "notice"),
         "message": message,
     }
 
@@ -140,7 +140,7 @@ class CheckRunPublisher:
             "name": name,
             "head_sha": self._head_sha,
             "status": "in_progress",
-            "started_at": datetime.now(UTC).isoformat(),
+            "started_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
         result = await self._client.create_check_run(self._owner, self._repo, payload)
         return result["id"]
@@ -174,7 +174,7 @@ class CheckRunPublisher:
         payload: dict = {
             "status": "completed",
             "conclusion": _determine_conclusion(findings),
-            "completed_at": datetime.now(UTC).isoformat(),
+            "completed_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "output": {
                 "title": _build_title(findings, duration_seconds),
                 "summary": _build_summary(findings, predictive_warnings, duration_seconds),
