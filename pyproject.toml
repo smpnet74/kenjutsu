@@ -31,6 +31,7 @@ dev = [
     "pyright>=1.1,<2",
     "bandit>=1.8,<2",
     "pip-audit>=2.7,<3",
+    "requests>=2.33.0",  # CVE-2026-25645: force transitive dep to patched version
 ]
 
 [tool.ruff]
