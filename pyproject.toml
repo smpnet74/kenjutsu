@@ -41,6 +41,7 @@ dev = [
     "bandit>=1.8,<2",
     "pip-audit>=2.7,<3",
     "requests>=2.33.0",  # CVE-2026-25645: force transitive dep to patched version
+    "testcontainers[postgres]>=4.9,<5",
 ]
 
 [tool.ruff]
@@ -108,3 +109,4 @@ serve = "uvicorn kenjutsu.app:app --reload --port 8000"
 
 [tool.pixi.dependencies]
 python = ">=3.12,<3.13"
+
