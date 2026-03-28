@@ -129,7 +129,8 @@ async def check_sha_current(
 
                 if response.status_code == 304:
                     # Not modified — cached sha is still current
-                    assert stale_entry is not None  # 304 requires we sent If-None-Match
+                    if stale_entry is None:
+                        return GuardResult.API_ERROR
                     old_sha, _, old_etag = stale_entry
                     _set_cached(pr, old_sha, old_etag)
                     return GuardResult.CURRENT if old_sha == pr.expected_head_sha else GuardResult.STALE
