@@ -22,10 +22,7 @@ _KIND_MAP = {"add": ChangeType.ADD, "del": ChangeType.DELETE, "context": ChangeT
 
 def make_hunk(lines: list[tuple[str, str]], old_start: int = 1, new_start: int = 1) -> Hunk:
     """Build a Hunk from (kind, text) tuples. kind: 'add', 'del', 'context'."""
-    hunk_lines = [
-        HunkLine(change_type=_KIND_MAP[k], content=t, old_lineno=None, new_lineno=None)
-        for k, t in lines
-    ]
+    hunk_lines = [HunkLine(change_type=_KIND_MAP[k], content=t, old_lineno=None, new_lineno=None) for k, t in lines]
     old_count = sum(1 for k, _ in lines if k in ("del", "context"))
     new_count = sum(1 for k, _ in lines if k in ("add", "context"))
     return Hunk(
