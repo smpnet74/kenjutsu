@@ -1,0 +1,38 @@
+# Fly.io application configuration for Kenjutsu staging
+#
+# This file drives `flyctl deploy` in the deploy-staging.yml workflow.
+# The release_command runs alembic inside the new image before any
+# traffic is shifted — zero-downtime, forward-only migration pattern.
+#
+# One-time setup: see scripts/provision-staging-postgres.sh
+
+app = "kenjutsu-staging"
+primary_region = "iad"
+
+[deploy]
+  # Runs `alembic upgrade head` in the new image before deploying.
+  # If migrations fail, the deploy is aborted and the current version
+  # continues serving traffic.
+  release_command = "alembic upgrade head"
+
+[build]
+  # Image is always overridden by --image in the deploy workflow.
+  # This placeholder keeps flyctl happy when running locally.
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 200
+    hard_limit = 250
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
