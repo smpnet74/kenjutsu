@@ -120,7 +120,7 @@ class TestPython:
         scope = find_enclosing_scope(PYTHON_DECORATED_FUNC, hunk, "python")
         assert scope is not None
         # decorated_definition or function_definition — either is acceptable
-        assert scope.name in ("decorated", "my_decorator", "decorated")
+        assert scope.name in ("decorated", "my_decorator")
 
     def test_top_level_code_no_scope(self) -> None:
         hunk = _hunk(new_start=3, new_count=2)  # x = 1; y = x + 2
