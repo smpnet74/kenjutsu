@@ -21,7 +21,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from kenjutsu.models import Category, Confidence, Finding, Severity
+from kenjutsu.models import Category, Confidence, Finding, Origin, Severity
 
 # ---------------------------------------------------------------------------
 # Corpus / annotation types
@@ -522,4 +522,251 @@ def write_report(
 
     md_path.write_text("\n".join(lines) + "\n")
 
+    return json_path, md_path
+
+
+# ---------------------------------------------------------------------------
+# Variant comparison (1.9c Diff-Only Baseline)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class MetricComparison:
+    """Single-metric comparison between two variants."""
+
+    metric: str
+    diff_only: float
+    structural: float
+    lift: float  # structural - diff_only (positive = structural is better)
+    unit: str = ""  # e.g. "%", "s", ""
+
+
+@dataclass
+class ComparisonReport:
+    """Side-by-side comparison of structural vs diff-only variants.
+
+    Bet A go/no-go:
+        - accepted_finding_lift > 0.15  (+15 pp)
+        - graph_origin_fraction_of_accepted > 0.20
+    """
+
+    comparisons: list[MetricComparison]
+    accepted_finding_lift: float  # structural.accepted_finding_rate - diff_only
+    graph_origin_fraction: float  # graph-origin TPs / total TPs in structural run
+    bet_a_go: bool  # True if both thresholds met
+    bet_a_reason: str  # human-readable explanation
+
+
+# Appendix D thresholds for Bet A go/no-go
+_BET_A_LIFT_THRESHOLD = 0.15
+_BET_A_GRAPH_FRACTION_THRESHOLD = 0.20
+
+
+def compare_variants(
+    structural: EvalMetrics,
+    diff_only: EvalMetrics,
+    structural_results: list[EvalResult] | None = None,
+) -> ComparisonReport:
+    """Produce a side-by-side comparison of structural vs diff-only metrics.
+
+    Args:
+        structural:          metrics from variant="structural" run
+        diff_only:           metrics from variant="diff_only" run
+        structural_results:  per-PR results from the structural run, used to
+                             compute graph-origin fraction; pass None to skip
+                             (graph_origin_fraction will be 0.0)
+
+    Returns:
+        ComparisonReport with lift/delta for each Appendix D metric and
+        go/no-go verdict for Bet A.
+    """
+
+    def _pct_lift(s: float, d: float) -> float:
+        """Return structural - diff_only (already in 0-1 range)."""
+        return s - d
+
+    comparisons = [
+        MetricComparison(
+            metric="Accepted-finding rate",
+            diff_only=diff_only.accepted_finding_rate,
+            structural=structural.accepted_finding_rate,
+            lift=_pct_lift(structural.accepted_finding_rate, diff_only.accepted_finding_rate),
+            unit="%",
+        ),
+        MetricComparison(
+            metric="FP rate (high confidence)",
+            diff_only=diff_only.fp_rate_high_confidence,
+            structural=structural.fp_rate_high_confidence,
+            # Negative lift is good here (structural should have fewer FPs)
+            lift=_pct_lift(diff_only.fp_rate_high_confidence, structural.fp_rate_high_confidence),
+            unit="%",
+        ),
+        MetricComparison(
+            metric="Comments per PR",
+            diff_only=diff_only.comments_per_pr_defects,
+            structural=structural.comments_per_pr_defects,
+            lift=diff_only.comments_per_pr_defects - structural.comments_per_pr_defects,
+            unit="",
+        ),
+        MetricComparison(
+            metric="Latency P50",
+            diff_only=diff_only.latency_p50_seconds,
+            structural=structural.latency_p50_seconds,
+            lift=diff_only.latency_p50_seconds - structural.latency_p50_seconds,
+            unit="s",
+        ),
+        MetricComparison(
+            metric="Latency P95",
+            diff_only=diff_only.latency_p95_seconds,
+            structural=structural.latency_p95_seconds,
+            lift=diff_only.latency_p95_seconds - structural.latency_p95_seconds,
+            unit="s",
+        ),
+    ]
+
+    accepted_finding_lift = structural.accepted_finding_rate - diff_only.accepted_finding_rate
+
+    # Graph-origin fraction of structural TPs (computed from actual results)
+    graph_origin_fraction = 0.0
+    if structural_results:
+        total_tps = sum(len(r.true_positives) for r in structural_results)
+        if total_tps > 0:
+            graph_tps = sum(1 for r in structural_results for f in r.true_positives if f.origin == Origin.GRAPH)
+            graph_origin_fraction = graph_tps / total_tps
+
+    bet_a_go = accepted_finding_lift > _BET_A_LIFT_THRESHOLD and graph_origin_fraction > _BET_A_GRAPH_FRACTION_THRESHOLD
+
+    reasons: list[str] = []
+    if accepted_finding_lift > _BET_A_LIFT_THRESHOLD:
+        reasons.append(f"accepted-finding lift {accepted_finding_lift:.1%} > {_BET_A_LIFT_THRESHOLD:.0%} threshold")
+    else:
+        reasons.append(f"accepted-finding lift {accepted_finding_lift:.1%} ≤ {_BET_A_LIFT_THRESHOLD:.0%} threshold")
+    if graph_origin_fraction > _BET_A_GRAPH_FRACTION_THRESHOLD:
+        reasons.append(
+            f"graph-origin fraction {graph_origin_fraction:.1%} > {_BET_A_GRAPH_FRACTION_THRESHOLD:.0%} threshold"
+        )
+    else:
+        reasons.append(
+            f"graph-origin fraction {graph_origin_fraction:.1%} ≤ {_BET_A_GRAPH_FRACTION_THRESHOLD:.0%} threshold"
+        )
+
+    bet_a_reason = "; ".join(reasons)
+
+    return ComparisonReport(
+        comparisons=comparisons,
+        accepted_finding_lift=accepted_finding_lift,
+        graph_origin_fraction=graph_origin_fraction,
+        bet_a_go=bet_a_go,
+        bet_a_reason=bet_a_reason,
+    )
+
+
+def write_comparison_report(
+    report: ComparisonReport,
+    structural: EvalMetrics,
+    diff_only: EvalMetrics,
+    output_dir: str | Path = "evaluation/results",
+) -> tuple[Path, Path]:
+    """Write the Bet A comparison as JSON + markdown.
+
+    Returns:
+        (json_path, markdown_path)
+    """
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    stem = f"comparison_structural_vs_diff_only_{timestamp}"
+
+    json_path = output_path / f"{stem}.json"
+    md_path = output_path / f"{stem}.md"
+
+    # --- JSON ---
+    def _fmt_lift(c: MetricComparison) -> str:
+        sign = "+" if c.lift >= 0 else ""
+        if c.unit == "%":
+            return f"{sign}{c.lift:.1%}"
+        return f"{sign}{c.lift:.2f}{c.unit}"
+
+    payload = {
+        "generated_at": timestamp,
+        "bet_a": {
+            "go": report.bet_a_go,
+            "reason": report.bet_a_reason,
+            "accepted_finding_lift": round(report.accepted_finding_lift, 4),
+            "graph_origin_fraction": round(report.graph_origin_fraction, 4),
+            "lift_threshold": _BET_A_LIFT_THRESHOLD,
+            "graph_fraction_threshold": _BET_A_GRAPH_FRACTION_THRESHOLD,
+        },
+        "metrics": [
+            {
+                "metric": c.metric,
+                "diff_only": round(c.diff_only, 4),
+                "structural": round(c.structural, 4),
+                "lift": round(c.lift, 4),
+                "unit": c.unit,
+            }
+            for c in report.comparisons
+        ],
+        "pr_counts": {
+            "structural": structural.pr_count,
+            "diff_only": diff_only.pr_count,
+        },
+    }
+    json_path.write_text(json.dumps(payload, indent=2))
+
+    # --- Markdown ---
+    verdict = "GO ✅" if report.bet_a_go else "NO-GO ❌"
+
+    def _pct(v: float) -> str:
+        return f"{v:.1%}"
+
+    def _delta(c: MetricComparison) -> str:
+        sign = "+" if c.lift >= 0 else ""
+        if c.unit == "%":
+            return f"{sign}{c.lift:.1%}"
+        return f"{sign}{c.lift:.1f}{c.unit}"
+
+    lines = [
+        "# Bet A Evaluation Results — Structural vs Diff-Only",
+        "",
+        f"Generated: {timestamp}",
+        "",
+        f"## Verdict: {verdict}",
+        "",
+        f"_{report.bet_a_reason}_",
+        "",
+        "## Metric Comparison",
+        "",
+        "| Metric | Diff-Only | Structural | Lift |",
+        "|--------|-----------|------------|------|",
+    ]
+    for c in report.comparisons:
+        if c.unit == "%":
+            d_val = _pct(c.diff_only)
+            s_val = _pct(c.structural)
+        else:
+            d_val = f"{c.diff_only:.1f}{c.unit}"
+            s_val = f"{c.structural:.1f}{c.unit}"
+        lines.append(f"| {c.metric} | {d_val} | {s_val} | {_delta(c)} |")
+
+    lines += [
+        "",
+        "## Bet A Thresholds",
+        "",
+        "| Criterion | Value | Threshold | Met |",
+        "|-----------|-------|-----------|-----|",
+        (
+            f"| Accepted-finding lift | {_pct(report.accepted_finding_lift)}"
+            f" | > {_pct(_BET_A_LIFT_THRESHOLD)}"
+            f" | {'✅' if report.accepted_finding_lift > _BET_A_LIFT_THRESHOLD else '❌'} |"
+        ),
+        (
+            f"| Graph-origin fraction of accepted | {_pct(report.graph_origin_fraction)}"
+            f" | > {_pct(_BET_A_GRAPH_FRACTION_THRESHOLD)}"
+            f" | {'✅' if report.graph_origin_fraction > _BET_A_GRAPH_FRACTION_THRESHOLD else '❌'} |"
+        ),
+    ]
+
+    md_path.write_text("\n".join(lines) + "\n")
     return json_path, md_path
