@@ -75,16 +75,28 @@ class Finding(BaseModel):
     description: str
     suggestion: str | None = None
     evidence_sources: list[str] = Field(default_factory=list)
+    code_context: str | None = None
 
     @computed_field  # type: ignore[prop-decorator]
     @property
     def fingerprint(self) -> str:
         """Stable identifier for dedup, suppression, and FP tracking.
 
-        Uses file_path + category + normalized description. Line numbers
-        are intentionally excluded — code can shift lines without
+        When code_context is set, anchors the fingerprint to actual source
+        code so it remains stable even if the LLM rewords the description.
+        When code_context is None, falls back to the original description-only
+        hash for backward compatibility.
+
+        Line numbers are intentionally excluded — code can shift lines without
         changing the finding.
         """
-        normalized = " ".join(self.description.lower().split())
-        raw = f"{self.file_path}:{self.category}:{normalized}"
+        if self.code_context is not None and self.code_context.strip():
+            # Anchor to actual source code — resilient to LLM rewording.
+            # Description is intentionally excluded when code_context is present
+            # because the same code may be described differently by different LLM runs.
+            code_hash = hashlib.sha256(self.code_context.encode()).hexdigest()
+            raw = f"{self.file_path}:{self.category}:{code_hash}"
+        else:
+            normalized = " ".join(self.description.lower().split())
+            raw = f"{self.file_path}:{self.category}:{normalized}"
         return hashlib.sha256(raw.encode()).hexdigest()[:16]

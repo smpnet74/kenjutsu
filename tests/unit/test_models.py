@@ -118,3 +118,65 @@ class TestFinding:
         )
         assert f.origin == Origin.PREDICTIVE
         assert f.category == Category.CO_CHANGE
+
+    def test_code_context_default_none(self) -> None:
+        f = self._make_finding()
+        assert f.code_context is None
+
+    def test_fingerprint_without_code_context_matches_original(self) -> None:
+        """No code_context → fingerprint equals the original description-only hash."""
+        import hashlib
+
+        f = self._make_finding()
+        normalized = " ".join(f.description.lower().split())
+        expected = hashlib.sha256(f"{f.file_path}:{f.category}:{normalized}".encode()).hexdigest()[:16]
+        assert f.fingerprint == expected
+
+    def test_fingerprint_stable_across_llm_rewording(self) -> None:
+        """Same code, different LLM description → same fingerprint."""
+        code = "if user.email is None: raise ValueError()"
+        f1 = self._make_finding(
+            description="Potential null dereference on user.email",
+            code_context=code,
+        )
+        f2 = self._make_finding(
+            description="Possible NullPointerException when accessing email attribute",
+            code_context=code,
+        )
+        assert f1.fingerprint == f2.fingerprint
+
+    def test_fingerprint_changes_with_different_code(self) -> None:
+        """Same description, different code → different fingerprint."""
+        f1 = self._make_finding(
+            description="Potential null dereference",
+            code_context="if user.email is None: raise ValueError()",
+        )
+        f2 = self._make_finding(
+            description="Potential null dereference",
+            code_context="if request.body is None: return 400",
+        )
+        assert f1.fingerprint != f2.fingerprint
+
+    def test_fingerprint_with_code_context_differs_from_without(self) -> None:
+        """Adding code_context changes the fingerprint (different hash formula)."""
+        f_no_ctx = self._make_finding()
+        f_with_ctx = self._make_finding(code_context="if user.email is None: raise ValueError()")
+        assert f_no_ctx.fingerprint != f_with_ctx.fingerprint
+
+    def test_fingerprint_ignores_line_numbers_with_code_context(self) -> None:
+        code = "if user.email is None: raise ValueError()"
+        f1 = self._make_finding(line_start=10, line_end=10, code_context=code)
+        f2 = self._make_finding(line_start=99, line_end=105, code_context=code)
+        assert f1.fingerprint == f2.fingerprint
+
+    def test_empty_code_context_falls_back_to_description_hash(self) -> None:
+        """code_context='' must not enter the code-hash path — same as None."""
+        f_none = self._make_finding()
+        f_empty = self._make_finding(code_context="")
+        assert f_none.fingerprint == f_empty.fingerprint
+
+    def test_whitespace_code_context_falls_back_to_description_hash(self) -> None:
+        """code_context='   ' must not enter the code-hash path — same as None."""
+        f_none = self._make_finding()
+        f_whitespace = self._make_finding(code_context="   ")
+        assert f_none.fingerprint == f_whitespace.fingerprint
