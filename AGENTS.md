@@ -18,7 +18,7 @@ These rules apply to every contributor: human developers, AI coding agents, and 
 
 **Architecture rule.** Domain logic must be plain async functions with no framework dependencies (no DBOS decorators, no FastAPI dependencies). The orchestration layer wraps business functions with durability — see v3 spec Section 3.6.
 
-**Finding fingerprint rule.** Fingerprints use `sha256(f"{file_path}:{category}:{normalized_description}")` with colon separators to prevent concatenation ambiguity. Line numbers are NOT part of the fingerprint. Normalization: `" ".join(description.lower().split())`. See `kenjutsu/models/findings.py` for the canonical implementation.
+**Finding fingerprint rule.** Fingerprints use `sha256(f"{file_path}:{category}:{...}")` with colon separators to prevent concatenation ambiguity. Line numbers are NOT part of the fingerprint. When `code_context` is present and non-empty, the fingerprint hashes the code (resilient to LLM rewording): `sha256(code_context)[:16]`. When `code_context` is None or whitespace, falls back to the description-based hash with normalization: `" ".join(description.lower().split())`. See `kenjutsu/models/findings.py` for the canonical implementation.
 
 ## Code Standards
 
