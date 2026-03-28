@@ -26,11 +26,18 @@ def upgrade() -> None:
     # ---------------------------------------------------------------------------
     # review_status enum
     # ---------------------------------------------------------------------------
-    # Create the enum type directly in PostgreSQL
-    op.execute(
-        "CREATE TYPE IF NOT EXISTS review_status AS ENUM "
-        "('queued', 'processing', 'complete', 'failed', 'superseded', 'aborted')"
-    )
+    # checkfirst=True skips creation if the type already exists — safe for reruns
+    # and for the case where SQLAlchemy emits CREATE TYPE from target_metadata.
+    postgresql.ENUM(
+        "queued",
+        "processing",
+        "complete",
+        "failed",
+        "superseded",
+        "aborted",
+        name="review_status",
+        create_type=False,
+    ).create(op.get_bind(), checkfirst=True)
 
     # ---------------------------------------------------------------------------
     # installations
