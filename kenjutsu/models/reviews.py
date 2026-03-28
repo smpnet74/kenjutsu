@@ -9,14 +9,15 @@ class ReviewStatus(StrEnum):
     """Lifecycle status for a PR review."""
 
     QUEUED = "queued"
-    IN_PROGRESS = "in_progress"
+    PROCESSING = "processing"
     COMPLETE = "complete"
+    FAILED = "failed"
     ABORTED = "aborted"
     SUPERSEDED = "superseded"
 
     def is_canonical(self) -> bool:
-        """True if the review is still a live/canonical result (not superseded or aborted)."""
-        return self not in (ReviewStatus.SUPERSEDED, ReviewStatus.ABORTED)
+        """True if the review is still a live/canonical result (not superseded, aborted, or failed)."""
+        return self not in (ReviewStatus.SUPERSEDED, ReviewStatus.ABORTED, ReviewStatus.FAILED)
 
 
 class Review:

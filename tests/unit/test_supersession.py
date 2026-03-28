@@ -25,7 +25,7 @@ def _review(
 class TestSupsedePreviousReviews:
     def test_marks_prior_complete_review_as_superseded(self) -> None:
         old = _review("r1", head_sha="sha1", status=ReviewStatus.COMPLETE)
-        new = _review("r2", head_sha="sha2", status=ReviewStatus.IN_PROGRESS)
+        new = _review("r2", head_sha="sha2", status=ReviewStatus.PROCESSING)
         reviews = [old, new]
         supersede_previous_reviews(reviews, new_review_id="r2", repo_id="org/repo", pr_number=42)
         assert old.status == ReviewStatus.SUPERSEDED
@@ -33,7 +33,7 @@ class TestSupsedePreviousReviews:
 
     def test_sets_superseded_by_on_all_canonical_prior_reviews(self) -> None:
         r1 = _review("r1", head_sha="sha1", status=ReviewStatus.COMPLETE)
-        r2 = _review("r2", head_sha="sha2", status=ReviewStatus.IN_PROGRESS)
+        r2 = _review("r2", head_sha="sha2", status=ReviewStatus.PROCESSING)
         r3 = _review("r3", head_sha="sha3", status=ReviewStatus.QUEUED)
         new = _review("r4", head_sha="sha4", status=ReviewStatus.QUEUED)
         reviews = [r1, r2, r3, new]
@@ -117,10 +117,10 @@ class TestEnsureUniqueCanonical:
         result = ensure_unique_canonical([existing], repo_id="org/repo", pr_number=42, head_sha="sha1")
         assert result is None
 
-    def test_returns_in_progress_review_as_canonical(self) -> None:
-        in_progress = _review("r1", head_sha="sha1", status=ReviewStatus.IN_PROGRESS)
-        result = ensure_unique_canonical([in_progress], repo_id="org/repo", pr_number=42, head_sha="sha1")
-        assert result is in_progress
+    def test_returns_processing_review_as_canonical(self) -> None:
+        processing = _review("r1", head_sha="sha1", status=ReviewStatus.PROCESSING)
+        result = ensure_unique_canonical([processing], repo_id="org/repo", pr_number=42, head_sha="sha1")
+        assert result is processing
 
     def test_force_push_scenario(self) -> None:
         """Force push: old sha superseded, new sha has no canonical yet."""

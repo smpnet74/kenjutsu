@@ -8,6 +8,7 @@ from kenjutsu.models.findings import (
     Publishability,
     Severity,
 )
+from kenjutsu.models.reviews import Review, ReviewStatus
 
 __all__ = [
     "Category",
@@ -16,4 +17,6 @@ __all__ = [
     "Origin",
     "Publishability",
     "Severity",
+    "Review",
+    "ReviewStatus",
 ]
