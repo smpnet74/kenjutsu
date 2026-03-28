@@ -26,10 +26,9 @@ dependencies = [
     "psycopg[binary]>=3.2,<4",
     "sqlalchemy>=2.0,<3",
     "dbos>=2.0,<3",
+    # LiteLLM: token counting and LLM abstraction (Phase 1 — 1.4c)
+    "litellm>=1.40",
 ]
-
-# Phase 2 additions:
-# "litellm>=1.40"       — LLM abstraction
 
 [project.optional-dependencies]
 dev = [
