@@ -1,0 +1,255 @@
+# Kenjutsu Staging Smoke Test
+#
+# Runs automatically after each successful staging deployment, and on demand.
+#
+# Test sequence:
+#   1. Health-check the staging app (/health → 200 + status=ok)
+#   2. Create a test PR on the designated test repo (triggers a real webhook)
+#   3. Poll GitHub until Kenjutsu's Check Run appears on the PR head SHA
+#   4. Report pass (exit 0) or fail (exit 1 + Slack alert)
+#   5. Always clean up: close the test PR and delete the test branch
+#
+# Required GitHub Environment ("staging") configuration:
+#
+#   Variables (vars.*):
+#     STAGING_APP_URL     — base URL of the staging Kenjutsu instance
+#                           e.g. https://kenjutsu-staging.railway.app
+#     SMOKE_TEST_REPO     — owner/repo of the test repository where the GitHub
+#                           App is installed, e.g. smpnet74/kenjutsu-test-target
+#
+#   Secrets (secrets.*):
+#     SMOKE_TEST_REPO_TOKEN       — GitHub PAT (or fine-grained token) with
+#                                   contents:write and pull_requests:write on
+#                                   SMOKE_TEST_REPO, and checks:read
+#     SLACK_STAGING_WEBHOOK_URL   — (optional) Slack incoming webhook URL;
+#                                   if absent, failures are surfaced only via
+#                                   GitHub Actions annotation
+#
+# Idempotency: each run creates a uniquely-named branch
+# (smoke-test/run-{run_id}-{attempt}) and a matching PR. The cleanup step
+# always runs (if: always()) so no test artefacts persist.
+
+name: Staging Smoke Test
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Deploy Staging"]
+    types: [completed]
+    branches: [main]
+
+concurrency:
+  group: smoke-test-staging
+  cancel-in-progress: false
+
+jobs:
+  smoke-test:
+    name: Staging Smoke Test
+    runs-on: ubuntu-latest
+    # For workflow_run events only proceed when the deploy itself succeeded.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    environment: staging
+
+    env:
+      SMOKE_TIMEOUT_SEC: "120"
+      SMOKE_POLL_SEC: "5"
+
+    steps:
+      # -------------------------------------------------------------------------
+      # 1. Verify the staging app is alive before doing anything else.
+      # -------------------------------------------------------------------------
+      - name: Verify staging health
+        env:
+          STAGING_URL: ${{ vars.STAGING_APP_URL }}
+        run: |
+          set -euo pipefail
+          echo "Checking ${STAGING_URL}/health"
+          response=$(curl -sSf --retry 3 --retry-delay 5 --max-time 30 \
+            "${STAGING_URL}/health")
+          echo "Response: ${response}"
+          status=$(echo "${response}" | jq -r '.status')
+          if [[ "${status}" != "ok" ]]; then
+            echo "::error::Staging health check failed (status=${status})"
+            exit 1
+          fi
+          echo "Staging is healthy"
+        shell: bash
+
+      # -------------------------------------------------------------------------
+      # 2. Create a unique test branch and a draft PR on the test repo.
+      #    The PR open event causes GitHub to send a pull_request webhook to the
+      #    staging Kenjutsu instance.
+      # -------------------------------------------------------------------------
+      - name: Create test branch and PR
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.SMOKE_TEST_REPO_TOKEN }}
+          TEST_REPO: ${{ vars.SMOKE_TEST_REPO }}
+        run: |
+          set -euo pipefail
+          BRANCH="smoke-test/run-${{ github.run_id }}-${{ github.run_attempt }}"
+
+          # Resolve default branch and its HEAD SHA.
+          default_branch=$(gh repo view "${TEST_REPO}" \
+            --json defaultBranchRef --jq .defaultBranchRef.name)
+          base_sha=$(gh api "repos/${TEST_REPO}/git/ref/heads/${default_branch}" \
+            --jq .object.sha)
+
+          # Create the test branch pointing at the same commit as default branch.
+          gh api "repos/${TEST_REPO}/git/refs" \
+            --method POST \
+            -f ref="refs/heads/${BRANCH}" \
+            -f sha="${base_sha}"
+          echo "Created branch: ${BRANCH}"
+
+          # Commit a unique marker file so the branch diverges from the base.
+          # base64 -w0 suppresses line-breaks (Linux behaviour, valid in CI).
+          encoded=$(printf 'run=%s attempt=%s\n' \
+            '${{ github.run_id }}' '${{ github.run_attempt }}' | base64 -w0)
+
+          existing_sha=$(gh api "repos/${TEST_REPO}/contents/.smoke-test-marker" \
+            --jq .sha 2>/dev/null || echo "")
+
+          if [[ -n "${existing_sha}" ]]; then
+            gh api "repos/${TEST_REPO}/contents/.smoke-test-marker" \
+              --method PUT \
+              -f message="chore: smoke test marker run=${{ github.run_id }}" \
+              -f content="${encoded}" \
+              -f branch="${BRANCH}" \
+              -f sha="${existing_sha}"
+          else
+            gh api "repos/${TEST_REPO}/contents/.smoke-test-marker" \
+              --method PUT \
+              -f message="chore: smoke test marker run=${{ github.run_id }}" \
+              -f content="${encoded}" \
+              -f branch="${BRANCH}"
+          fi
+
+          # Open the PR — this fires the webhook to the staging Kenjutsu app.
+          pr_url=$(gh pr create \
+            --repo "${TEST_REPO}" \
+            --head "${BRANCH}" \
+            --base "${default_branch}" \
+            --title "chore: staging smoke test (run ${{ github.run_id }})" \
+            --body "Automated smoke test PR. Closed immediately after check run verification.")
+
+          pr_number=$(echo "${pr_url}" | grep -oE '[0-9]+$')
+          pr_sha=$(gh api "repos/${TEST_REPO}/pulls/${pr_number}" --jq .head.sha)
+
+          {
+            echo "pr_number=${pr_number}"
+            echo "pr_sha=${pr_sha}"
+            echo "branch=${BRANCH}"
+            echo "test_repo=${TEST_REPO}"
+          } >> "${GITHUB_OUTPUT}"
+          echo "Created PR #${pr_number} (head SHA: ${pr_sha})"
+        shell: bash
+
+      # -------------------------------------------------------------------------
+      # 3. Poll GitHub for a Check Run from the Kenjutsu staging app.
+      #    A check run appearing proves:
+      #      a) the webhook was received by the staging instance
+      #      b) the review pipeline ran
+      #      c) Kenjutsu called back to GitHub Checks API
+      # -------------------------------------------------------------------------
+      - name: Poll for Kenjutsu Check Run
+        env:
+          GH_TOKEN: ${{ secrets.SMOKE_TEST_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          repo="${{ steps.pr.outputs.test_repo }}"
+          sha="${{ steps.pr.outputs.pr_sha }}"
+          timeout="${{ env.SMOKE_TIMEOUT_SEC }}"
+          interval="${{ env.SMOKE_POLL_SEC }}"
+          elapsed=0
+
+          echo "Polling repos/${repo}/commits/${sha}/check-runs"
+          echo "Waiting up to ${timeout}s for a Kenjutsu check run..."
+
+          while [[ "${elapsed}" -lt "${timeout}" ]]; do
+            count=$(gh api "repos/${repo}/commits/${sha}/check-runs" \
+              --jq '[.check_runs[] | select(.app.name | test("kenjutsu|Kenjutsu"; "i"))] | length')
+
+            if [[ "${count}" -gt 0 ]]; then
+              echo "PASS: found ${count} Kenjutsu check run(s)"
+              gh api "repos/${repo}/commits/${sha}/check-runs" \
+                --jq '[.check_runs[] | select(.app.name | test("kenjutsu|Kenjutsu"; "i"))] | .[] | {name, status, conclusion}'
+              exit 0
+            fi
+
+            echo "  ${elapsed}s elapsed — no check run yet, retrying in ${interval}s..."
+            sleep "${interval}"
+            elapsed=$((elapsed + interval))
+          done
+
+          echo "::error::Timed out after ${timeout}s — no Kenjutsu check run appeared"
+          echo "::error::Webhook not received or pipeline did not run within timeout"
+          exit 1
+        shell: bash
+
+      # -------------------------------------------------------------------------
+      # 4. Clean up unconditionally — close PR and delete branch.
+      # -------------------------------------------------------------------------
+      - name: Close test PR and delete branch
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.SMOKE_TEST_REPO_TOKEN }}
+        run: |
+          set -uo pipefail
+          repo="${{ steps.pr.outputs.test_repo }}"
+          pr_number="${{ steps.pr.outputs.pr_number }}"
+          branch="${{ steps.pr.outputs.branch }}"
+
+          if [[ -n "${pr_number}" ]]; then
+            echo "Closing PR #${pr_number}"
+            gh pr close "${pr_number}" --repo "${repo}" 2>/dev/null \
+              || gh api "repos/${repo}/pulls/${pr_number}" \
+                   --method PATCH -f state=closed 2>/dev/null \
+              || true
+          fi
+
+          if [[ -n "${branch}" ]]; then
+            echo "Deleting branch ${branch}"
+            gh api "repos/${repo}/git/refs/heads/${branch}" \
+              --method DELETE 2>/dev/null || true
+          fi
+
+          echo "Cleanup complete"
+        shell: bash
+
+      # -------------------------------------------------------------------------
+      # 5. Alert on failure via Slack (optional) and always surface a GHA error.
+      # -------------------------------------------------------------------------
+      - name: Notify Slack on failure
+        if: failure()
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_STAGING_WEBHOOK_URL }}
+        run: |
+          set -uo pipefail
+          if [[ -z "${SLACK_WEBHOOK_URL:-}" ]]; then
+            echo "SLACK_STAGING_WEBHOOK_URL not set — skipping Slack notification"
+            exit 0
+          fi
+          curl -sSf -X POST "${SLACK_WEBHOOK_URL}" \
+            -H 'Content-Type: application/json' \
+            -d '{
+              "text": ":x: *Kenjutsu staging smoke test FAILED*",
+              "attachments": [{
+                "color": "danger",
+                "fields": [
+                  {
+                    "title": "Run",
+                    "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+                    "short": false
+                  },
+                  {
+                    "title": "Triggered by",
+                    "value": "${{ github.event_name }}",
+                    "short": true
+                  }
+                ]
+              }]
+            }'
+        shell: bash
