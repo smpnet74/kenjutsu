@@ -6,6 +6,8 @@ Run with: pixi run -e dev test-integration
 
 from __future__ import annotations
 
+import os
+
 import pytest
 import sqlalchemy as sa
 from alembic import command as alembic_cmd
@@ -16,9 +18,18 @@ from sqlalchemy import inspect
 @pytest.fixture(scope="module")
 def migrated_engine(postgres_url: str):
     """Return an engine after running alembic upgrade head."""
-    cfg = AlembicConfig("alembic.ini")
-    cfg.set_main_option("sqlalchemy.url", postgres_url)
-    alembic_cmd.upgrade(cfg, "head")
+    # env.py reads DATABASE_URL from the environment; set it for the duration
+    # of this fixture so alembic can connect to the test container.
+    original = os.environ.get("DATABASE_URL")
+    os.environ["DATABASE_URL"] = postgres_url
+    try:
+        cfg = AlembicConfig("alembic.ini")
+        alembic_cmd.upgrade(cfg, "head")
+    finally:
+        if original is None:
+            del os.environ["DATABASE_URL"]
+        else:
+            os.environ["DATABASE_URL"] = original
 
     engine = sa.create_engine(postgres_url)
     yield engine
