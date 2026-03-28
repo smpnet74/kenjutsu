@@ -91,12 +91,26 @@ async def _route_event(event_type: str, action: str | None, payload: dict[str, A
 
     Runs as a FastAPI BackgroundTask; errors are logged, not propagated.
     """
+    from kenjutsu.server.debounce import debounce_manager
+
     try:
         if event_type == "pull_request" and action in {"opened", "synchronize", "reopened"}:
             pr_number = payload.get("number")
             repo = payload.get("repository", {}).get("full_name", "unknown")
-            logger.info("Queuing PR review: %s#%s (action=%s)", repo, pr_number, action)
-            # TODO(DEM-160): enqueue review job
+            logger.info("Debouncing PR review: %s#%s (action=%s)", repo, pr_number, action)
+
+            if pr_number is None:
+                logger.warning("pull_request event missing PR number: %s", action)
+                return
+
+            pr_key = (repo, int(pr_number))
+
+            async def _enqueue_review() -> None:
+                logger.info("Enqueueing PR review: %s#%s", repo, pr_number)
+                # TODO(DEM-160): enqueue review job
+
+            debounce_manager.schedule(pr_key, _enqueue_review)
+
         elif event_type == "installation":
             github_id = payload.get("installation", {}).get("id")
             logger.info("Installation event: action=%s github_id=%s", action, github_id)
