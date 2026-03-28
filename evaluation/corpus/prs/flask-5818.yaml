@@ -1,0 +1,30 @@
+repo: "pallets/flask"
+pr_number: 5818
+head_sha: "6a64969009bf1898bd302e6a9633f71942523f7f"
+base_sha: "adf363679da2d9a5ddc564bb2da563c7ca083916"
+languages: ["python"]
+size: "medium"
+tags: ["refactor", "deprecation", "api-change"]
+expected_findings:
+  - file_path: "src/flask/app.py"
+    line_range: [76, 107]
+    category: "logic"
+    severity: "high"
+    description: "The remove_ctx and add_ctx wrapper functions use isinstance(args[0], AppContext) to detect old vs new calling conventions. If a user passes an AppContext-like object as the first argument, this heuristic could misfire."
+    confidence: "verified"
+  - file_path: "src/flask/app.py"
+    line_range: [253, 310]
+    category: "logic"
+    severity: "high"
+    description: "__init_subclass__ inspects method signatures to detect old-style overrides. The annotation detection logic handles str annotations, class annotations, and name-based matching. Reviewer should verify that forward references (from __future__ import annotations) are handled."
+    confidence: "verified"
+  - file_path: "src/flask/app.py"
+    line_range: [300, 303]
+    category: "logic"
+    severity: "medium"
+    description: "When an old-style override is detected, both the subclass method and the Flask base method are monkey-patched via setattr. This mutates the Flask class itself, which could affect all Flask instances, not just the subclass."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "src/flask/app.py"
+    description: "Many methods now take an extra 'ctx: AppContext' parameter, looks like an unnecessary API break"
+    why_fp: "Intentional refactor to pass context explicitly through the dispatch chain. The __init_subclass__ mechanism provides backward compatibility with deprecation warnings."

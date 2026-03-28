@@ -1,0 +1,30 @@
+repo: "prisma/prisma"
+pr_number: 29389
+head_sha: "85b32643426de76797e2d8ae2f9129fa5bcab3e2"
+base_sha: "f8258ad65bf4fcd2599ffc8da18ee88e800bd2c5"
+languages: ["typescript"]
+size: "large"
+tags: ["refactor", "dependency-removal"]
+expected_findings:
+  - file_path: "packages/cli/src/Studio.ts"
+    line_range: [298, 330]
+    category: "logic"
+    severity: "high"
+    description: "Major architectural change: Hono web framework replaced with raw Request/Response handler using Web APIs. Reviewer should verify all HTTP methods and routes from the old Hono app are preserved, particularly CORS preflight and error handling."
+    confidence: "verified"
+  - file_path: "packages/cli/src/studio-entry.ts"
+    line_range: [1, 56]
+    category: "logic"
+    severity: "medium"
+    description: "New browser entry point bundles React, ReactDOM, and studio-core imports, replacing CDN imports. Reviewer should verify the bundle size is acceptable."
+    confidence: "verified"
+  - file_path: "packages/cli/src/studio-server.ts"
+    line_range: [1, 165]
+    category: "logic"
+    severity: "medium"
+    description: "New Node.js HTTP server adapter. Reviewer should verify correct handling of streaming responses, content-length headers, and SIGINT/SIGTERM handlers."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "packages/cli/package.json"
+    description: "react and react-dom added as devDependencies"
+    why_fp: "Required for the new pre-bundled studio entry point that replaces CDN imports."

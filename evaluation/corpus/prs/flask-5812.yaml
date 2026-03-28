@@ -1,0 +1,33 @@
+repo: "pallets/flask"
+pr_number: 5812
+head_sha: "c2705ffd9ce1dc8476cb29eaf5ff5d4c719852d9"
+base_sha: "330123258e8c3dc391cbe55ab1ed94891ca83af3"
+languages: ["python"]
+size: "large"
+tags: ["refactor", "api-change", "deprecation"]
+expected_findings:
+  - file_path: "src/flask/ctx.py"
+    line_range: [1, 500]
+    category: "logic"
+    severity: "critical"
+    description: "Merging RequestContext into AppContext is a major architectural change. Reviewer should verify that all existing code paths that relied on separate app/request context stacking still work correctly."
+    confidence: "verified"
+  - file_path: "src/flask/globals.py"
+    line_range: [1, 62]
+    category: "logic"
+    severity: "high"
+    description: "The globals module is reworked to derive request/session/g from the unified AppContext. Reviewer should verify that code checking for active request context (has_request_context()) still works when only an app context is pushed without a request."
+    confidence: "verified"
+  - file_path: "src/flask/helpers.py"
+    line_range: [1, 50]
+    category: "logic"
+    severity: "medium"
+    description: "stream_with_context changes to work with the merged context model. Reviewer should ensure that the ContextVar reset behavior is correct when contexts are no longer independently stacked."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "docs/reqcontext.rst"
+    description: "Massive deletion of request context documentation looks like important content is lost"
+    why_fp: "Content is consolidated into appcontext.rst since app and request contexts are now merged. The information is restructured, not removed."
+  - file_path: "src/flask/app.py"
+    description: "Large deletions from app.py look like feature removal"
+    why_fp: "The context management code moved into ctx.py as part of the merge."

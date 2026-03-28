@@ -1,0 +1,30 @@
+repo: "pallets/flask"
+pr_number: 5799
+head_sha: "9822a0351574790cb66c652fcc396ad7aa2b09d8"
+base_sha: "49b7e7bc8fb69d605719991d1c0a99fcee689053"
+languages: ["python"]
+size: "small"
+tags: ["bugfix", "refactor"]
+expected_findings:
+  - file_path: "src/flask/helpers.py"
+    line_range: [114, 133]
+    category: "logic"
+    severity: "high"
+    description: "The sentinel 'yield None' is moved outside the 'with' block and the type: ignore comment suppresses a real type mismatch. Reviewer should verify that this sentinel is always consumed by the 'next(wrapped_g)' call and never leaks to callers."
+    confidence: "verified"
+  - file_path: "src/flask/helpers.py"
+    line_range: [120, 127]
+    category: "logic"
+    severity: "high"
+    description: "Context push is deferred until after the sentinel yield to avoid recording the wrong event loop during async views. Reviewer should verify the app_ctx and req_ctx are captured at generator creation time and pushed at iteration time."
+    confidence: "verified"
+  - file_path: "src/flask/helpers.py"
+    line_range: [116, 116]
+    category: "logic"
+    severity: "medium"
+    description: "New import of _cv_app is used to capture the app context. If _cv_app.get() is called without an active app context, this will raise."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "src/flask/helpers.py"
+    description: "The yield None outside the with block looks like a bug -- context won't be active during sentinel yield"
+    why_fp: "Intentional. The sentinel yield captures the generator state without pushing the contexts. Contexts are pushed on the next iteration via the 'with' statement, avoiding the async event loop mismatch."

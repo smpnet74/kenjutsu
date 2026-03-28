@@ -1,0 +1,18 @@
+repo: "microsoft/TypeScript"
+pr_number: 63239
+head_sha: "44ab351e466f050d1c88f4f4a9a95876526f6af7"
+base_sha: "c9e7428bb76f0543a3555d0af87777e7db3a41e6"
+languages: ["typescript"]
+size: "small"
+tags: ["bugfix"]
+expected_findings:
+  - file_path: "src/compiler/program.ts"
+    line_range: [2558, 2560]
+    category: "bug"
+    severity: "high"
+    description: "When reusing a program, lib files were not being added to the libFiles set, causing isSourceFileDefaultLibrary() to return false for reused lib files. This led to unnecessary re-checking of lib files."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "tests/baselines/reference/tscWatch/programUpdates/when-skipLibCheck-and-skipDefaultLibCheck-changes.js"
+    description: "Two baselines gained a new line adding lib.es2025.full.d.ts to semantic diagnostics refresh"
+    why_fp: "Correct behavior -- when skipLibCheck changes, the lib file SHOULD be refreshed. Previously it was missing because the lib file wasn't properly tracked."

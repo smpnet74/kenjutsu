@@ -1,0 +1,27 @@
+repo: "encode/httpx"
+pr_number: 3050
+head_sha: "ab27c991a9bcc6121a2e836066b619973d7addd3"
+base_sha: "6f461522a5c58839c31be3c82b7bd47fba77109b"
+languages: ["python"]
+size: "medium"
+tags: ["deprecation", "api-change"]
+expected_findings:
+  - file_path: "httpx/_client.py"
+    line_range: [675, 681]
+    category: "logic"
+    severity: "medium"
+    description: "The deprecation warning message says 'WSGITransport' for both sync and async clients. Reviewer should verify the async client version correctly references 'ASGITransport' instead."
+    confidence: "verified"
+  - file_path: "httpx/_client.py"
+    line_range: [1421, 1425]
+    category: "logic"
+    severity: "low"
+    description: "allow_env_proxies calculation removed the app check, so env proxies could now be loaded when app is passed -- a subtle behavior change."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "docs/async.md"
+    description: "Large deletion of ASGI documentation from async.md"
+    why_fp: "Content moved to docs/advanced/transports.md to consolidate all transport documentation."
+  - file_path: "tests/test_asgi.py"
+    description: "Every test changed from app= to transport= pattern"
+    why_fp: "This is the intended migration path. Tests use the non-deprecated explicit transport pattern."

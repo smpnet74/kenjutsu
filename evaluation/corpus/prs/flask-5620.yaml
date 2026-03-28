@@ -1,0 +1,33 @@
+repo: "pallets/flask"
+pr_number: 5620
+head_sha: "9e831e915fa875423af0c0de8f53a3780055919e"
+base_sha: "5e8cb740187c0561b36323dfc8510e58c3066838"
+languages: ["python"]
+size: "small"
+tags: ["bugfix", "typing"]
+expected_findings:
+  - file_path: "src/flask/cli.py"
+    line_range: [326, 326]
+    category: "logic"
+    severity: "medium"
+    description: "Moving 'app: Flask | None = None' declaration before the if block changes the scoping. Previously app was only defined inside the if/else branches. Reviewer should verify this doesn't introduce a path where app remains None and is used."
+    confidence: "verified"
+  - file_path: "src/flask/testing.py"
+    line_range: [82, 82]
+    category: "logic"
+    severity: "medium"
+    description: "Replacing the conditional sep (bytes vs str) with an f-string assumes url.query is always a string. If url.query could be bytes, this would produce an incorrect result."
+    confidence: "verified"
+  - file_path: "src/flask/app.py"
+    line_range: [353, 353]
+    category: "style"
+    severity: "low"
+    description: "Using '# pyright: ignore' on the open() call suppresses the type error rather than fixing the underlying overload issue."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "pyproject.toml"
+    description: "Changing pyright include from 'tests' to 'tests/typing' looks like reduced type checking coverage"
+    why_fp: "The full test suite was never meant to be pyright-checked. Restricting to tests/typing focuses pyright on files that test typing behavior."
+  - file_path: "src/flask/views.py"
+    description: "Changing decorators type from list[Callable[[F], F]] to list[Callable[..., Any]] looks like a type safety regression"
+    why_fp: "The original type was too strict and caused pyright errors for valid decorator usage patterns."

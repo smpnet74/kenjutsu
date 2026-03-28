@@ -1,0 +1,18 @@
+repo: "expressjs/express"
+pr_number: 6525
+head_sha: "bb8ac68965db0422d51f27570f428a4a1029388d"
+base_sha: "a039e4917501f20fb8db7ac342afa1742786832e"
+languages: ["javascript"]
+size: "small"
+tags: ["chore", "linting", "cross-file"]
+expected_findings:
+  - file_path: ".eslintrc.yml"
+    line_range: [9, 13]
+    category: "style"
+    severity: "low"
+    description: "New no-restricted-globals rule bans global Buffer usage. Reviewer should verify this aligns with the project's Node.js version support policy. Explicit Buffer imports from 'node:buffer' are better for ESM compatibility."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "test/express.text.js"
+    description: "Buffer import added but blank line removed"
+    why_fp: "Minor whitespace change alongside the required import addition."

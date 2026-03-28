@@ -1,0 +1,33 @@
+repo: "pydantic/pydantic"
+pr_number: 12644
+head_sha: "deccb218ceb3365a010b31a981f483cdfcb20dcc"
+base_sha: "979b05fcdef2dbd8aebae2d510067afe657f966f"
+languages: ["rust"]
+size: "large"
+tags: ["refactor"]
+expected_findings:
+  - file_path: "pydantic-core/src/serializers/fields.rs"
+    line_range: [114, 170]
+    category: "logic"
+    severity: "medium"
+    description: "The new unified serialize() method replaces separate to_python and serde_serialize code paths. Reviewer should verify the new serialize_to_python and serialize_to_json trait implementations correctly reproduce original behavior, especially around key serialization."
+    confidence: "verified"
+  - file_path: "pydantic-core/src/serializers/shared.rs"
+    line_range: [578, 640]
+    category: "logic"
+    severity: "medium"
+    description: "The new SerializeMap trait unifies two previously separate code paths. The Python-mode serialize_entry handles JSON mode key serialization via json_key_no_infer. Reviewer should verify this matches the original behavior where infer_json_key was used for extras."
+    confidence: "verified"
+  - file_path: "pydantic-core/src/serializers/infer.rs"
+    line_range: [620, 680]
+    category: "logic"
+    severity: "medium"
+    description: "The any_dataclass_iter function was moved and uses get_field_marker with PyOnceLock static cache. Reviewer should verify the field-type filtering logic is identical."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "pydantic-core/src/serializers/computed_fields.rs"
+    description: "ComputedField fields changed from Py<PyString> to PyBackedStr"
+    why_fp: "Intentional optimization -- PyBackedStr avoids GIL-bound reference counting for string comparisons."
+  - file_path: "pydantic-core/src/serializers/fields.rs"
+    description: "SerField lost key_py, alias_py fields and get_key_py/get_key_json methods"
+    why_fp: "Replaced by the unified get_key() method returning &PyBackedStr."

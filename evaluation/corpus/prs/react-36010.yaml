@@ -1,0 +1,24 @@
+repo: "facebook/react"
+pr_number: 36010
+head_sha: "ea8b0fb31a8251c97cbef90f79c73df7894a56e4"
+base_sha: "7b5b561bd2dda205ed8f397864379003b707d4ae"
+languages: ["javascript"]
+size: "medium"
+tags: ["bugfix"]
+expected_findings:
+  - file_path: "packages/react-dom-bindings/src/client/ReactFiberConfigDOM.js"
+    line_range: [4523, 4528]
+    category: "bug"
+    severity: "high"
+    description: "New early return when element is already document.activeElement. This prevents the bug where calling .focus() on an already-focused element would fire no focus event, making didFocus=false, causing the code to incorrectly try the next sibling."
+    confidence: "verified"
+  - file_path: "packages/react-dom-bindings/src/client/ReactFiberConfigDOM.js"
+    line_range: [4534, 4540]
+    category: "logic"
+    severity: "high"
+    description: "Focus event listener moved from the element to element.ownerDocument with capture:true. This is needed to detect delegated focus. Reviewer should verify this doesn't cause false positives from unrelated focus events."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "packages/react-dom-bindings/src/client/ReactFiberConfigDOM.js"
+    description: "Listening for focus on document instead of element seems overly broad"
+    why_fp: "The focus() call is synchronous and the listener is added/removed in a try/finally block. No async focus events can interfere."

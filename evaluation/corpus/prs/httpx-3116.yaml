@@ -1,0 +1,24 @@
+repo: "encode/httpx"
+pr_number: 3116
+head_sha: "4143ba206c526fea05c2eb53e60720874d541c44"
+base_sha: "df5345140e09ac6c2de0d9589bcd6f3e31c6aa3f"
+languages: ["python"]
+size: "small"
+tags: ["bugfix"]
+expected_findings:
+  - file_path: "httpx/_client.py"
+    line_range: [565, 572]
+    category: "logic"
+    severity: "high"
+    description: "The _set_timeout method checks 'isinstance(self.timeout, UseClientDefault)' but self.timeout on a Client instance should always be a Timeout object. The UseClientDefault check may indicate confusion about when UseClientDefault vs Timeout is stored."
+    confidence: "verified"
+  - file_path: "httpx/_client.py"
+    line_range: [562, 572]
+    category: "logic"
+    severity: "medium"
+    description: "The fix only sets timeout if 'timeout' is not already in request.extensions. If a user constructs a Request with explicit timeout extensions, those are preserved. Reviewer should verify this is the correct precedence."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "httpx/_client.py"
+    description: "_set_timeout is called in both sync and async send() methods, looks like code duplication"
+    why_fp: "The method is defined once on BaseClient and called from both Client.send() and AsyncClient.send(). This is proper code reuse."

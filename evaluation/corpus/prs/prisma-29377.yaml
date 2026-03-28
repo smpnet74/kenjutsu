@@ -1,0 +1,24 @@
+repo: "prisma/prisma"
+pr_number: 29377
+head_sha: "b9cd95300c0a4ea0edc0f4c8d9d42a7c08fa29c0"
+base_sha: "4131568160a0efe49285991ced9bb2fa4133f50a"
+languages: ["typescript"]
+size: "medium"
+tags: ["feature", "performance", "streaming"]
+expected_findings:
+  - file_path: "packages/internals/src/engine-commands/getDmmf.ts"
+    line_range: [62, 108]
+    category: "logic"
+    severity: "high"
+    description: "getDMMFBuffered uses a streaming JSON parser to handle DMMF > 512MB that exceeds V8's string limit. Reviewer should verify: (1) the 16MB chunk size is appropriate, (2) buffer.free() in finally block correctly releases WASM memory, (3) the JSONParser onValue callback correctly captures only the root-level value."
+    confidence: "verified"
+  - file_path: "packages/internals/src/engine-commands/getDmmf.ts"
+    line_range: [169, 195]
+    category: "logic"
+    severity: "medium"
+    description: "The V8 string limit fallback checks for ERR_STRING_TOO_LONG error code. Reviewer should verify this error code is stable across Node.js versions."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "packages/internals/src/engine-commands/getDmmf.ts"
+    description: "debugErrorType moved to module scope"
+    why_fp: "Refactored to be shared between the normal and buffered code paths, not a behavioral change."

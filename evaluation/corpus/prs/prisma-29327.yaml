@@ -1,0 +1,24 @@
+repo: "prisma/prisma"
+pr_number: 29327
+head_sha: "46af985bc49226aa49115a7b0c37a7549e6a517c"
+base_sha: "f8e742a8de6878a206d8493b61d911dac97e11df"
+languages: ["typescript"]
+size: "medium"
+tags: ["bugfix", "datetime"]
+expected_findings:
+  - file_path: "packages/client-engine-runtime/src/interpreter/render-query.ts"
+    line_range: [51, 60]
+    category: "bug"
+    severity: "high"
+    description: "Core fix: when a query variable has type 'DateTime' and the value is a string, it is now converted to a Date object. This prevents string comparison failures with cursor pagination on DATE columns. Reviewer should verify this conversion is safe for all DateTime formats."
+    confidence: "verified"
+  - file_path: "packages/client-engine-runtime/src/interpreter/render-query.ts"
+    line_range: [52, 52]
+    category: "logic"
+    severity: "medium"
+    description: "The check uses arg.prisma__value.type === 'DateTime'. Reviewer should verify this type string matches what the query compiler emits across all database providers."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "packages/client/tests/functional/issues/29309-datetime-cursor/prisma/_schema.ts"
+    description: "Schema uses @db.Date annotation for DateTime field"
+    why_fp: "Intentional to reproduce the bug: a DateTime field stored as DATE in MySQL causes string comparison issues with cursor pagination."

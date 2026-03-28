@@ -1,0 +1,18 @@
+repo: "facebook/react"
+pr_number: 35985
+head_sha: "443bbe0f1bae04ff76494718b4e11ba37c1bc934"
+base_sha: "4610359651fa10247159e2050f8ec222cb7faa91"
+languages: ["javascript"]
+size: "medium"
+tags: ["bugfix", "devtools", "crash-fix"]
+expected_findings:
+  - file_path: "packages/react-devtools-shared/src/backend/fiber/renderer.js"
+    line_range: [7901, 7937]
+    category: "bug"
+    severity: "high"
+    description: "Return type changed from boolean to boolean|null. When no forced error status is found, the function now returns null instead of false. This is critical because false means 'actively reset the error' while null means 'no override'. Returning false previously caused new class components (no instance yet) to hit the reset path, causing a crash."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "packages/react-devtools-shared/src/backend/fiber/renderer.js"
+    description: "Changing return type from boolean to boolean|null could break callers expecting boolean"
+    why_fp: "The callers use a switch statement. case false and case true are handled explicitly. Returning null falls through to default behavior."

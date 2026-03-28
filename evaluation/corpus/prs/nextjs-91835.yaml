@@ -1,0 +1,30 @@
+repo: "vercel/next.js"
+pr_number: 91835
+head_sha: "02ca8089ba0a54e077c56354010f09e66f03be1a"
+base_sha: "63f485248bacc347b8593d4597d74bd4aaa160c4"
+languages: ["typescript"]
+size: "large"
+tags: ["feature", "devtools", "error-overlay"]
+expected_findings:
+  - file_path: "packages/next/src/next-devtools/dev-overlay/utils/get-error-by-type.ts"
+    line_range: [50, 90]
+    category: "style"
+    severity: "medium"
+    description: "The getErrorByType function duplicates the entire ReadyRuntimeError construction block for AggregateError vs regular Error, differing only in the aggregateErrors field. Code duplication could be simplified."
+    confidence: "verified"
+  - file_path: "packages/next/src/next-devtools/dev-overlay/utils/get-error-by-type.ts"
+    line_range: [98, 140]
+    category: "style"
+    severity: "medium"
+    description: "Same duplication pattern in getCauseChain. Refactoring to share the common structure would reduce maintenance burden."
+    confidence: "verified"
+  - file_path: "packages/next/src/next-devtools/dev-overlay/utils/get-error-by-type.ts"
+    line_range: [143, 190]
+    category: "logic"
+    severity: "low"
+    description: "getAggregateErrors limits to 5 errors and depth 5. Non-Error items in errors array are silently skipped."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "packages/next/src/next-devtools/dev-overlay/utils/get-error-by-type.ts"
+    description: "ReadyErrorCause and ReadyRuntimeError types use discriminated unions"
+    why_fp: "Intentional to provide type safety for the aggregateErrors field which only exists on AggregateError variants."

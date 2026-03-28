@@ -1,0 +1,18 @@
+repo: "facebook/react"
+pr_number: 36134
+head_sha: "df5ef86d614375eb07f94d08bba9b59df4fe604e"
+base_sha: "ed69815cebae33b0326cc69faa90f813bb924f3b"
+languages: ["javascript"]
+size: "small"
+tags: ["bugfix"]
+expected_findings:
+  - file_path: "packages/react-reconciler/src/ReactFiberWorkLoop.js"
+    line_range: [5043, 5049]
+    category: "bug"
+    severity: "high"
+    description: "The fix records pinged lanes into workInProgressRootPingedLanes when a synchronous ping occurs during rendering. Without this, markRootSuspended would mark those lanes as suspended, preventing retry. This was causing useDeferredValue to get stuck."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "packages/react-reconciler/src/__tests__/ReactSuspenseWithNoopRenderer-test.js"
+    description: "Updated test expectations show more render passes which looks like a performance regression"
+    why_fp: "The additional render passes are correct behavior -- the synchronous ping should trigger a retry. Previously the retry was being suppressed incorrectly."

@@ -1,0 +1,18 @@
+repo: "vercel/next.js"
+pr_number: 91832
+head_sha: "26bf3a147bcbc160e460e35137d03aef46b106f5"
+base_sha: "aa3ba7ed15db36f1d21c827dd695a4e24a8955c6"
+languages: ["rust", "typescript"]
+size: "large"
+tags: ["refactor", "turbopack", "hash-encoding"]
+expected_findings:
+  - file_path: "turbopack/crates/turbo-tasks-hash/src/base38.rs"
+    line_range: [1, 27]
+    category: "logic"
+    severity: "medium"
+    description: "Renaming from base40 to base38 reduces the character set. Reviewer should verify the new character set avoids all problematic filesystem characters and that the shorter alphabet doesn't significantly increase hash length."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "turbopack/crates/turbopack-tests/tests/snapshot/"
+    description: "Hundreds of snapshot file renames with new hash values"
+    why_fp: "Expected: changing the hash encoding algorithm changes all generated file names in snapshot tests."

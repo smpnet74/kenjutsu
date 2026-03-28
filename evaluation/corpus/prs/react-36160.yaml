@@ -1,0 +1,24 @@
+repo: "facebook/react"
+pr_number: 36160
+head_sha: "20d7378eab7eeb289798bc2ce25620116e6dfe2a"
+base_sha: "2233b7d7281fea5beec815cf5af9593d2b80f68d"
+languages: ["javascript"]
+size: "small"
+tags: ["bugfix"]
+expected_findings:
+  - file_path: "packages/react-reconciler/src/ReactFiberNewContext.js"
+    line_range: [326, 340]
+    category: "logic"
+    severity: "high"
+    description: "The fix changes Suspense context propagation to skip the primary (hidden) subtree and jump directly to the fallback sibling. Previously, when forcePropagateEntireTree was false, propagation was stopped entirely, meaning fallback consumers never got context updates when behind a memo boundary."
+    confidence: "verified"
+  - file_path: "packages/react-reconciler/src/ReactFiberNewContext.js"
+    line_range: [334, 337]
+    category: "logic"
+    severity: "medium"
+    description: "The code assumes fiber.child is the OffscreenComponent (primary) and its sibling is the FallbackFragment. If the fiber structure changes in future, this assumption would break."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "packages/react-reconciler/src/ReactFiberNewContext.js"
+    description: "The forcePropagateEntireTree branch is removed, seems like it could break full propagation"
+    why_fp: "The new code handles both cases: it propagates into the fallback (visible part), and primary children either don't exist or are hidden."

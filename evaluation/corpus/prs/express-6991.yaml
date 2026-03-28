@@ -1,0 +1,24 @@
+repo: "expressjs/express"
+pr_number: 6991
+head_sha: "7990883a9f01856696ff240763351b9c81e0e2a2"
+base_sha: "5a4568abfe05f71d5559e1db9321627af501ebe3"
+languages: ["javascript"]
+size: "small"
+tags: ["bugfix", "behavior-change"]
+expected_findings:
+  - file_path: "lib/response.js"
+    line_range: [133, 144]
+    category: "logic"
+    severity: "high"
+    description: "The string case now sets encoding='utf8' and checks Content-Type inline, removing the separate block that ran after the switch. Reviewer should verify that the removed second block is truly redundant and that no code path between the switch and the old block could have modified Content-Type."
+    confidence: "verified"
+  - file_path: "lib/response.js"
+    line_range: [136, 140]
+    category: "logic"
+    severity: "medium"
+    description: "Uses const inside a case block without braces. The type variable was removed from var declarations at the top -- reviewer should verify no other code path references the outer type variable."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "lib/response.js"
+    description: "Removing the var type declaration at line 129"
+    why_fp: "The variable is now block-scoped with const inside the case block, which is correct since it was only used in the string path."

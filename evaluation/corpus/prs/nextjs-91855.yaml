@@ -1,0 +1,24 @@
+repo: "vercel/next.js"
+pr_number: 91855
+head_sha: "7dfe28222a335fd688ab20b98ccba2e1a8de33e3"
+base_sha: "aa3ba7ed15db36f1d21c827dd695a4e24a8955c6"
+languages: ["typescript"]
+size: "small"
+tags: ["bugfix", "typescript", "backwards-compat"]
+expected_findings:
+  - file_path: "packages/next/src/lib/typescript/getTypeScriptConfiguration.ts"
+    line_range: [157, 175]
+    category: "logic"
+    severity: "high"
+    description: "The TS6 baseUrl deprecation handling runs AFTER parseJsonConfigFileContent. Reviewer should verify that result.options.paths is fully resolved at this point and that deleting baseUrl from result.options doesn't break downstream consumers."
+    confidence: "verified"
+  - file_path: "packages/next/src/lib/typescript/getTypeScriptConfiguration.ts"
+    line_range: [33, 74]
+    category: "logic"
+    severity: "medium"
+    description: "Two separate code paths handle baseUrl rewriting: one before parse and one after parse. Reviewer should verify these don't conflict or double-rewrite paths."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "packages/next/src/build/index.ts"
+    description: "Unrelated cache-life types code added"
+    why_fp: "Separate feature that landed in the same PR branch, not a code smell."

@@ -1,0 +1,33 @@
+repo: "fastapi/fastapi"
+pr_number: 14986
+head_sha: "c167c04cf08737b963f78b9b366369d72d9c5206"
+base_sha: "2f9c914d440e99fe8b62646b51e4d24c5bcd858b"
+languages: ["python"]
+size: "medium"
+tags: ["bugfix", "security", "refactor"]
+expected_findings:
+  - file_path: "fastapi/openapi/docs.py"
+    line_range: [8, 17]
+    category: "security"
+    severity: "high"
+    description: "The _html_safe_json function escapes <, >, and & but the replacement order matters: replacing '&' after '<' and '>' means that if json.dumps itself produced '&' characters, they would be double-escaped only if the previous replacements introduced them. The current order (replace < first, then >, then &) is correct for preventing injection, but a reviewer should verify no double-encoding occurs when input legitimately contains '&'."
+    confidence: "verified"
+  - file_path: "fastapi/applications.py"
+    line_range: [1104, 1117]
+    category: "perf"
+    severity: "medium"
+    description: "self.openapi() is now called on every request to /openapi.json. If openapi() is expensive and not internally cached, this could be a performance regression. Reviewer should verify that FastAPI's openapi() method has its own caching (it does via openapi_schema attribute), so the dict() copy on line 1112 only happens when root_path is set."
+    confidence: "verified"
+  - file_path: "fastapi/applications.py"
+    line_range: [1108, 1114]
+    category: "logic"
+    severity: "medium"
+    description: "The new code creates a shallow copy with dict(schema) and prepends the root_path server. The cached openapi_schema dict is not mutated (good), but the 'servers' list inside the copy still references the same list objects. A reviewer should confirm this shallow copy is sufficient since only the top-level 'servers' key is replaced, not mutated in place."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "fastapi/applications.py"
+    description: "The server_urls set and closure variables were removed, looks like state tracking was lost"
+    why_fp: "The old code mutated self.servers in place, causing root_path values to accumulate across requests. The new code computes per-request by reading from the cached schema, which is the correct fix for the cache poisoning bug."
+  - file_path: "fastapi/openapi/docs.py"
+    description: "Using string replace instead of a proper JSON encoder with ensure_ascii might miss edge cases"
+    why_fp: "json.dumps already handles all JSON escaping; the additional replacements target only HTML-special characters (<, >, &) that are safe in JSON but dangerous inside <script> tags. This is a standard XSS mitigation pattern."

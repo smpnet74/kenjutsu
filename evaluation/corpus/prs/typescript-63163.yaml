@@ -1,0 +1,24 @@
+repo: "microsoft/TypeScript"
+pr_number: 63163
+head_sha: "0a50086054be724bdbe7b9997c33bb3f12648794"
+base_sha: "347254895823a36a1b1b1c80471422da54ad77de"
+languages: ["typescript"]
+size: "large"
+tags: ["bugfix", "port"]
+expected_findings:
+  - file_path: "src/compiler/checker.ts"
+    line_range: [24606, 24611]
+    category: "logic"
+    severity: "high"
+    description: "The anyFunctionType subtype fix changes semantics: previously both source===anyFunctionType and target===anyFunctionType returned True, now target===anyFunctionType returns False. This could affect overload resolution and union simplification."
+    confidence: "verified"
+  - file_path: "src/compiler/checker.ts"
+    line_range: [33932, 33932]
+    category: "logic"
+    severity: "medium"
+    description: "The JSX children NonInferrableType propagation adds getPropagatingFlagsOfTypes(childrenTypes) to objectFlags. Reviewer should verify that propagating flags from children types doesn't inadvertently propagate unwanted flags beyond NonInferrableType."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "src/compiler/checker.ts"
+    description: "Two unrelated fixes in one PR looks like poor separation of concerns"
+    why_fp: "Both are ports from typescript-go and are small, closely related type-checking fixes bundled as a single port PR."

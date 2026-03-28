@@ -1,0 +1,24 @@
+repo: "microsoft/TypeScript"
+pr_number: 63154
+head_sha: "4b568b506d38e90626982fb5e4028449fb5cdf05"
+base_sha: "0ed1ee5d7cc2b8fe2f6b44bcae62f2a38a50eb0f"
+languages: ["typescript"]
+size: "medium"
+tags: ["bugfix", "crash-fix"]
+expected_findings:
+  - file_path: "src/compiler/transformers/declarations.ts"
+    line_range: [1624, 1624]
+    category: "bug"
+    severity: "high"
+    description: "The added 'continue' statement after recursing into nested binding patterns is the actual crash fix. Without it, the code would fall through and try to push the nested binding pattern name as an Identifier, causing a crash."
+    confidence: "verified"
+  - file_path: "src/compiler/transformers/declarations.ts"
+    line_range: [1629, 1629]
+    category: "style"
+    severity: "low"
+    description: "The removal of 'as Identifier' cast on elem.name is now safe because the continue prevents reaching this line with a binding pattern."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "tests/cases/compiler/declarationEmitNestedBindingPattern.ts"
+    description: "Test uses parameter properties with binding patterns which produce TS1187 errors"
+    why_fp: "Intentional -- the test verifies declaration emit doesn't crash even when the code has errors."

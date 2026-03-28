@@ -1,0 +1,24 @@
+repo: "pydantic/pydantic"
+pr_number: 12825
+head_sha: "ad3f375ac8a593aeaeb913d8f2d014d72b451c16"
+base_sha: "1a37a3d479dea9b21c7379e882bf5ec56fb94fc2"
+languages: ["rust", "python"]
+size: "medium"
+tags: ["bugfix", "behavior-change"]
+expected_findings:
+  - file_path: "pydantic-core/src/serializers/type_serializers/union.rs"
+    line_range: [289, 301]
+    category: "logic"
+    severity: "high"
+    description: "When the discriminator matches but serialization fails in a top-level union, the code now returns Ok(None) instead of falling back to trying all other union members. Callers that relied on fallback-to-all-members behavior will now get inference-based serialization or warnings."
+    confidence: "verified"
+  - file_path: "pydantic-core/src/serializers/type_serializers/union.rs"
+    line_range: [304, 305]
+    category: "logic"
+    severity: "medium"
+    description: "In a nested union, the error is now propagated immediately without trying other variants. This changes nested union serialization semantics."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "pydantic-core/src/serializers/type_serializers/union.rs"
+    description: "The `skip` parameter was removed from UnionChoices::serialize(), changing the function signature"
+    why_fp: "Intentional -- the skip logic is no longer needed because tagged unions no longer fall back to trying all members when the discriminator match fails."
