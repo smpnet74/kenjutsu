@@ -168,3 +168,15 @@ class TestFinding:
         f1 = self._make_finding(line_start=10, line_end=10, code_context=code)
         f2 = self._make_finding(line_start=99, line_end=105, code_context=code)
         assert f1.fingerprint == f2.fingerprint
+
+    def test_empty_code_context_falls_back_to_description_hash(self) -> None:
+        """code_context='' must not enter the code-hash path — same as None."""
+        f_none = self._make_finding()
+        f_empty = self._make_finding(code_context="")
+        assert f_none.fingerprint == f_empty.fingerprint
+
+    def test_whitespace_code_context_falls_back_to_description_hash(self) -> None:
+        """code_context='   ' must not enter the code-hash path — same as None."""
+        f_none = self._make_finding()
+        f_whitespace = self._make_finding(code_context="   ")
+        assert f_none.fingerprint == f_whitespace.fingerprint

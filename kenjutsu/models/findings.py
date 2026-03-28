@@ -90,7 +90,7 @@ class Finding(BaseModel):
         Line numbers are intentionally excluded — code can shift lines without
         changing the finding.
         """
-        if self.code_context is not None:
+        if self.code_context is not None and self.code_context.strip():
             # Anchor to actual source code — resilient to LLM rewording.
             # Description is intentionally excluded when code_context is present
             # because the same code may be described differently by different LLM runs.
