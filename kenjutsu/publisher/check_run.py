@@ -167,16 +167,10 @@ class CheckRunPublisher:
     ) -> None:
         """Close the Check Run with final conclusion, title, and summary.
 
-        The completion PATCH may include up to ANNOTATION_BATCH_SIZE annotations.
-        Callers that streamed all findings via update_with_annotations() may
-        pass an empty findings list here; passing the full list is also fine —
-        the first batch is attached, remaining batches were already pushed.
+        Annotations must have been streamed beforehand via update_with_annotations().
+        The completion PATCH sets only the final status, conclusion, and output
+        text — it does not re-send annotations to avoid duplicates on GitHub.
         """
-        inline = [f for f in findings if _is_inline_publishable(f)]
-        annotations = [_finding_to_annotation(f) for f in inline]
-        # Only the first batch fits in a single PATCH; extras were sent incrementally.
-        first_batch = annotations[:ANNOTATION_BATCH_SIZE]
-
         payload: dict = {
             "status": "completed",
             "conclusion": _determine_conclusion(findings),
@@ -184,7 +178,6 @@ class CheckRunPublisher:
             "output": {
                 "title": _build_title(findings, duration_seconds),
                 "summary": _build_summary(findings, predictive_warnings, duration_seconds),
-                "annotations": first_batch,
             },
         }
         await self._client.update_check_run(self._owner, self._repo, check_run_id, payload)

@@ -1,8 +1,11 @@
-"""Integration tests for CheckRunPublisher against a mocked GitHub API.
+"""Unit tests for CheckRunPublisher orchestration logic.
 
-Uses unittest.mock.AsyncMock to stand in for the CheckRunClient protocol so
-the tests exercise the publisher's orchestration logic (create → annotate →
-complete) without hitting a real network.
+Tests exercise the publisher's lifecycle (create → annotate → complete)
+using AsyncMock for the CheckRunClient protocol. No HTTP boundary is crossed;
+these tests verify call sequencing, payload shape, and batching behaviour.
+
+Real HTTP-boundary integration tests (e.g. Testcontainers + WireMock) are
+tracked as a follow-on item.
 """
 
 from __future__ import annotations
@@ -209,27 +212,21 @@ class TestComplete:
         summary = payload["output"]["summary"]
         # Predictive warning appears in summary text
         assert "Files co-change" in summary
-        # But NOT as an annotation
-        annotations = payload["output"].get("annotations", [])
-        messages = [a["message"] for a in annotations]
-        assert not any("Files co-change" in m for m in messages)
+        # Completion PATCH sends no annotations — all annotations were streamed earlier
+        assert "annotations" not in payload["output"]
 
-    async def test_complete_with_many_findings_final_call_has_at_most_batch_size_annotations(
-        self,
-    ) -> None:
-        """The complete() call must respect the 50-annotation limit."""
+    async def test_complete_sends_no_annotations(self) -> None:
+        """complete() must not re-send annotations that were already streamed."""
         client = _make_client()
         publisher = CheckRunPublisher(client, owner="a", repo="r", head_sha="s")
         findings = [_make_finding() for _ in range(ANNOTATION_BATCH_SIZE + 10)]
 
         await publisher.complete(check_run_id=1, findings=findings, predictive_warnings=[], duration_seconds=2.0)
 
-        # The final PATCH that sets status=completed must not exceed batch size
         completion_call = client.update_check_run.call_args_list[-1]
         payload = completion_call[0][3]
         assert payload["status"] == "completed"
-        annotations = payload["output"].get("annotations", [])
-        assert len(annotations) <= ANNOTATION_BATCH_SIZE
+        assert "annotations" not in payload["output"]
 
 
 # ---------------------------------------------------------------------------
@@ -239,7 +236,7 @@ class TestComplete:
 
 class TestFullWorkflow:
     async def test_create_update_complete_workflow(self) -> None:
-        """End-to-end: create → update → complete in order."""
+        """End-to-end: create → stream annotations → complete without re-sending annotations."""
         client = _make_client(check_run_id=77)
         publisher = CheckRunPublisher(client, owner="acme", repo="api", head_sha="deadbeef")
 
@@ -251,7 +248,7 @@ class TestFullWorkflow:
         findings = [_make_finding(severity=Severity.WARNING) for _ in range(2)]
         await publisher.update_with_annotations(check_run_id=run_id, findings=findings)
 
-        # Step 3: complete
+        # Step 3: complete — pass findings for stats, no annotations re-sent
         pw = _make_finding(origin=Origin.PREDICTIVE, description="Likely missed test")
         await publisher.complete(
             check_run_id=run_id,
@@ -263,11 +260,13 @@ class TestFullWorkflow:
         # create called exactly once
         assert client.create_check_run.call_count == 1
 
-        # update called at least twice (streaming + completion)
-        assert client.update_check_run.call_count >= 2
+        # update called twice: once for streaming annotations, once for completion
+        assert client.update_check_run.call_count == 2
 
         # Final completion payload is correct
         final = client.update_check_run.call_args_list[-1][0][3]
         assert final["status"] == "completed"
         assert final["conclusion"] == "neutral"  # warnings → neutral
         assert "Likely missed test" in final["output"]["summary"]
+        # Completion does not re-send annotations
+        assert "annotations" not in final["output"]
