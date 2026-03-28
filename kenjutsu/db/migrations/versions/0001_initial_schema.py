@@ -26,16 +26,10 @@ def upgrade() -> None:
     # ---------------------------------------------------------------------------
     # review_status enum
     # ---------------------------------------------------------------------------
-    review_status = postgresql.ENUM(
-        "queued",
-        "processing",
-        "complete",
-        "failed",
-        "superseded",
-        "aborted",
-        name="review_status",
+    # Create the enum type directly in PostgreSQL
+    op.execute(
+        "CREATE TYPE review_status AS ENUM ('queued', 'processing', 'complete', 'failed', 'superseded', 'aborted')"
     )
-    review_status.create(op.get_bind())
 
     # ---------------------------------------------------------------------------
     # installations
@@ -86,13 +80,7 @@ def upgrade() -> None:
         sa.Column("trigger", sa.Text, nullable=False),
         sa.Column(
             "status",
-            sa.Enum(
-                "queued",
-                "processing",
-                "complete",
-                "failed",
-                "superseded",
-                "aborted",
+            postgresql.ENUM(
                 name="review_status",
                 create_type=False,
             ),
@@ -194,4 +182,4 @@ def downgrade() -> None:
     op.drop_table("reviews")
     op.drop_table("repos")
     op.drop_table("installations")
-    op.execute("DROP TYPE IF EXISTS review_status")
+    op.execute("DROP TYPE IF EXISTS review_status CASCADE")
