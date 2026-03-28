@@ -138,10 +138,12 @@ jobs:
           pr_number=$(echo "${pr_url}" | grep -oE '[0-9]+$')
           pr_sha=$(gh api "repos/${TEST_REPO}/pulls/${pr_number}" --jq .head.sha)
 
-          echo "pr_number=${pr_number}" >> "${GITHUB_OUTPUT}"
-          echo "pr_sha=${pr_sha}"       >> "${GITHUB_OUTPUT}"
-          echo "branch=${BRANCH}"       >> "${GITHUB_OUTPUT}"
-          echo "test_repo=${TEST_REPO}" >> "${GITHUB_OUTPUT}"
+          {
+            echo "pr_number=${pr_number}"
+            echo "pr_sha=${pr_sha}"
+            echo "branch=${BRANCH}"
+            echo "test_repo=${TEST_REPO}"
+          } >> "${GITHUB_OUTPUT}"
           echo "Created PR #${pr_number} (head SHA: ${pr_sha})"
         shell: bash
 
