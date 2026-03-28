@@ -1,0 +1,24 @@
+repo: "facebook/react"
+pr_number: 36094
+head_sha: "0b4b19d09f33cd02085c4f4f5d5a7ae08b01c021"
+base_sha: "8b2e903a7447d370eb77bb117bc4c0ae240ce831"
+languages: ["javascript"]
+size: "large"
+tags: ["feature", "devtools"]
+expected_findings:
+  - file_path: "packages/react-devtools-shared/src/backend/fiber/renderer.js"
+    line_range: [2412, 2425]
+    category: "logic"
+    severity: "medium"
+    description: "Activity hidden state detection relies on checking offscreenChild.memoizedState !== null. Reviewer should verify this is a reliable heuristic -- memoizedState could potentially be non-null for reasons other than being hidden."
+    confidence: "verified"
+  - file_path: "packages/react-devtools-shared/src/devtools/store.js"
+    line_range: [1738, 1775]
+    category: "logic"
+    severity: "medium"
+    description: "When toggling Activity hidden/visible, isInsideHiddenActivity is set on direct children only. Nested Activities could create inconsistencies. Reviewer should verify the recursive update correctly handles nested Activity hierarchies."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "packages/react-devtools-shared/src/__tests__/storeComponentFilters-test.js"
+    description: "Snapshot changes show Activity elements gaining mode attribute"
+    why_fp: "Intended behavior change -- Activity elements now display their mode in the DevTools tree."

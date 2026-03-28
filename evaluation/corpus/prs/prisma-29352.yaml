@@ -1,0 +1,30 @@
+repo: "prisma/prisma"
+pr_number: 29352
+head_sha: "7e9a5d7a1e0a64ca169a0e9b6b00beeb41f95dd8"
+base_sha: "33667c373c0ae84ad37c7aed2497b99452da589c"
+languages: ["typescript"]
+size: "large"
+tags: ["feature", "cli"]
+expected_findings:
+  - file_path: "packages/cli/src/postgres/link/Link.ts"
+    line_range: [155, 170]
+    category: "security"
+    severity: "medium"
+    description: "The linkDatabase method writes connection strings (including passwords) to .env files. Reviewer should verify writeLocalFiles uses single-quoted values to avoid shell expansion, and that isAlreadyLinked prevents accidental overwrite without --force."
+    confidence: "verified"
+  - file_path: "packages/cli/src/postgres/link/Link.ts"
+    line_range: [40, 55]
+    category: "logic"
+    severity: "medium"
+    description: "resolveApiClient falls through to browser login when no stored tokens exist. Reviewer should verify this flow works correctly in CI environments (should fail gracefully, not hang)."
+    confidence: "verified"
+  - file_path: "packages/cli/src/postgres/link/management-api.ts"
+    line_range: [1, 84]
+    category: "security"
+    severity: "medium"
+    description: "sanitizeErrorMessage function should strip credentials from error messages. Reviewer should verify it handles all URL patterns that might contain passwords."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "packages/cli/src/postgres/link/__tests__/Link.vitest.ts"
+    description: "Large test file with many mocks"
+    why_fp: "Comprehensive test coverage for the new command, including auth flows, idempotency, and interactive mode."

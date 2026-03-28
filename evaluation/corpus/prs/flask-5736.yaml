@@ -1,0 +1,24 @@
+repo: "pallets/flask"
+pr_number: 5736
+head_sha: "edebd3704437f19b5b137eaffe97130fe817d144"
+base_sha: "85c5d93cbd049c4bd0679c36fd1ddcae8c37b642"
+languages: ["python"]
+size: "large"
+tags: ["feature", "api-change"]
+expected_findings:
+  - file_path: "src/flask/sansio/app.py"
+    line_range: [663, 680]
+    category: "logic"
+    severity: "medium"
+    description: "The overload pattern uses 'callable(name)' to detect when the decorator is used without parentheses. If someone passes a callable string subclass as the filter name, this would incorrectly treat it as the decorated function."
+    confidence: "verified"
+  - file_path: "src/flask/sansio/blueprints.py"
+    line_range: [440, 475]
+    category: "style"
+    severity: "low"
+    description: "The blueprint versions duplicate the same callable(name) pattern. Reviewer should verify consistency across all six decorator methods."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "src/flask/sansio/blueprints.py"
+    description: "Blueprint record_once callbacks renamed from register_template to register_template_filter/test/global"
+    why_fp: "Deliberate cleanup to give inner functions more descriptive names. Behavior is identical since they are only used as callbacks."

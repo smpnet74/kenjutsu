@@ -1,0 +1,39 @@
+repo: "fastapi/fastapi"
+pr_number: 13786
+head_sha: "61d703e761e83f7084c3224157310cc4732dd690"
+base_sha: "e2354a0a063f2fcb890ec568f1a98e136a39fd25"
+languages: ["python"]
+size: "large"
+tags: ["bugfix", "security", "breaking-change"]
+expected_findings:
+  - file_path: "fastapi/security/api_key.py"
+    line_range: [22, 40]
+    category: "security"
+    severity: "high"
+    description: "API Key authentication now returns 401 instead of 403 with a WWW-Authenticate: APIKey header. This is a breaking change for clients that check for 403 status codes. The 'APIKey' challenge in WWW-Authenticate is not a standard IANA-registered scheme."
+    confidence: "verified"
+  - file_path: "fastapi/security/http.py"
+    line_range: [310, 315]
+    category: "logic"
+    severity: "high"
+    description: "HTTPBearer now returns 401 instead of 403 for missing credentials AND for invalid scheme. Both cases now use make_not_authenticated_error(), merging two distinct error conditions into one, losing diagnostic information."
+    confidence: "verified"
+  - file_path: "fastapi/security/http.py"
+    line_range: [385, 393]
+    category: "logic"
+    severity: "medium"
+    description: "HTTPBasic: malformed credentials now get 'Not authenticated' instead of 'Invalid authentication credentials'. The client can no longer distinguish between 'no credentials sent' and 'credentials sent but malformed'."
+    confidence: "verified"
+  - file_path: "fastapi/security/http.py"
+    line_range: [413, 446]
+    category: "logic"
+    severity: "high"
+    description: "HTTPDigest returns WWW-Authenticate: Digest but without required challenge parameters (realm, nonce) per RFC 7616. Returning a bare 'Digest' challenge could cause conformant clients to fail."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "fastapi/security/oauth2.py"
+    description: "OAuth2 base class changes from 403 to 401 might break OAuth2 flows"
+    why_fp: "OAuth2PasswordBearer and OAuth2AuthorizationCodeBearer subclasses already used 401. Only the base OAuth2 class used 403. Changing the base to 401 aligns it with its subclasses and with RFC 6749."
+  - file_path: "fastapi/security/http.py"
+    description: "make_not_authenticated_error returns exception instead of raising looks like a bug"
+    why_fp: "Intentional design: returning the exception allows subclasses to override error construction without handling the raise logic."

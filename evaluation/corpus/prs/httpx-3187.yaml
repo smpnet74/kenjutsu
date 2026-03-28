@@ -1,0 +1,24 @@
+repo: "encode/httpx"
+pr_number: 3187
+head_sha: "0dad0d9eba4070acdfd98c4cf2799be9da299e01"
+base_sha: "be56b747350008b7b0456242691919f9086c0f32"
+languages: ["python"]
+size: "small"
+tags: ["bugfix", "refactor"]
+expected_findings:
+  - file_path: "httpx/_urlparse.py"
+    line_range: [416, 424]
+    category: "logic"
+    severity: "high"
+    description: "The new percent_encoded function no longer preserves already-encoded sequences. All '%' characters in the input will be double-encoded. This is the intentional fix for query param quoting, but reviewer should verify this doesn't break URL-in-URL cases that were working before."
+    confidence: "verified"
+  - file_path: "httpx/_urlparse.py"
+    line_range: [409, 409]
+    category: "style"
+    severity: "medium"
+    description: "The function 'PERCENT' is named in ALL_CAPS like a constant, but it is a function. This breaks Python naming conventions."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "httpx/_urlparse.py"
+    description: "The fast path 'if not string.rstrip(NON_ESCAPED_CHARS)' looks like it could return empty string incorrectly"
+    why_fp: "string.rstrip(chars) returns empty string only when ALL characters are in the chars set, meaning no escaping is needed. Returning the original string unmodified is correct."

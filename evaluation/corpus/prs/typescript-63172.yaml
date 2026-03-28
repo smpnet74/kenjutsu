@@ -1,0 +1,24 @@
+repo: "microsoft/TypeScript"
+pr_number: 63172
+head_sha: "7b92ae5c8fde037cb3628d4eaea821c7b40fc804"
+base_sha: "347254895823a36a1b1b1c80471422da54ad77de"
+languages: ["typescript"]
+size: "large"
+tags: ["deprecation", "api-change"]
+expected_findings:
+  - file_path: "src/compiler/checker.ts"
+    line_range: [37955, 37963]
+    category: "logic"
+    severity: "medium"
+    description: "The deprecation check for dynamic import() uses ignoreDeprecations !== '6.0' as the gate. Reviewer should verify this version string is correct and consistent with the deprecation strategy."
+    confidence: "verified"
+  - file_path: "src/compiler/checker.ts"
+    line_range: [43030, 43033]
+    category: "logic"
+    severity: "medium"
+    description: "The import type() assertion deprecation check uses grammarErrorOnFirstToken which reports on the first token of node.attributes. Reviewer should confirm this points to the 'assert' keyword token."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "tests/baselines/reference/nodeModulesImportTypeModeDeclarationEmit1(module=node16).js"
+    description: "Baseline changes show 'assert' replaced by 'with' in test files"
+    why_fp: "Test files updated to use 'with' instead of 'assert' to reflect the new recommended syntax."

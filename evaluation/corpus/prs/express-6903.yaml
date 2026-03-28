@@ -1,0 +1,18 @@
+repo: "expressjs/express"
+pr_number: 6903
+head_sha: "91e2aba32e2668517de95bfe0633deab567e0f15"
+base_sha: "a479419b16f5b97eb20f5dbae5848708ff30ce2d"
+languages: ["javascript"]
+size: "small"
+tags: ["bugfix", "api-change"]
+expected_findings:
+  - file_path: "lib/application.js"
+    line_range: [526, 526]
+    category: "logic"
+    severity: "medium"
+    description: "The fix 'var opts = options || {}' handles null and undefined but would also coerce falsy values like 0 or '' to {}. In practice options should always be an object or nullish."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "test/app.render.js"
+    description: "Test passes both null and undefined to app.render"
+    why_fp: "Both are valid test cases since the fix targets nullish values specifically."

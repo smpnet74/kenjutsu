@@ -1,0 +1,24 @@
+repo: "facebook/react"
+pr_number: 35999
+head_sha: "6e4f4e4d169256bf77ee88c5f88ab5d26c260f3f"
+base_sha: "3f0b9e61c467cd6e09cac6fb69f6e8f68cd3c5d7"
+languages: ["javascript"]
+size: "medium"
+tags: ["bugfix", "behavior-change"]
+expected_findings:
+  - file_path: "packages/react-reconciler/src/ReactFiberWorkLoop.js"
+    line_range: [5175, 5220]
+    category: "logic"
+    severity: "high"
+    description: "Major behavior change: render-phase spawned updates now only warn via console.error in DEV instead of throwing. Infinite loops detected through phase-spawn instrumentation will no longer crash the app in production -- they'll silently continue, potentially causing browser hangs."
+    confidence: "verified"
+  - file_path: "packages/react-reconciler/src/ReactFiberWorkLoop.js"
+    line_range: [5185, 5196]
+    category: "logic"
+    severity: "medium"
+    description: "For NESTED_UPDATE_SYNC_LANE during render phase, the old code threw. The new code only warns in DEV and does NOT throw, meaning the render continues. This changes observable behavior from a crash to a potential infinite loop in production."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "packages/react-dom/src/__tests__/ReactUpdates-test.js"
+    description: "Tests now listen for console.error instead of expecting a thrown error"
+    why_fp: "Reflects the intentional behavior change -- loop detection now warns instead of throwing for phase-spawn cases."

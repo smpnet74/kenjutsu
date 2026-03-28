@@ -1,0 +1,30 @@
+repo: "pydantic/pydantic"
+pr_number: 12677
+head_sha: "5548bdf73cfdc6e8400b78055139becb97112acd"
+base_sha: "0bd683bfe3d77dc8e8cc4ef6b4678b21601ef413"
+languages: ["rust", "python"]
+size: "large"
+tags: ["bugfix", "refactor"]
+expected_findings:
+  - file_path: "pydantic-core/src/serializers/fields.rs"
+    line_range: [153, 210]
+    category: "logic"
+    severity: "high"
+    description: "The refactored serialize_iterators merges main and extras iteration. The extras_iter now gets exclude_none filtering. Reviewer should verify that exclude_defaults is NOT applied to extra fields -- only main fields should have it."
+    confidence: "verified"
+  - file_path: "pydantic-core/src/serializers/fields.rs"
+    line_range: [183, 195]
+    category: "logic"
+    severity: "medium"
+    description: "The required fields check self.required_fields > used_req_fields now runs BEFORE extras iteration. Reviewer should confirm no edge case where extras processing could affect the check."
+    confidence: "verified"
+  - file_path: "pydantic-core/tests/serializers/test_union.py"
+    line_range: [1, 7]
+    category: "logic"
+    severity: "medium"
+    description: "Only 7 lines of test changes for a 556-line diff affecting 13 files. The test coverage for the exclude_none fix on typed dict unions should be verified."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "pydantic-core/src/serializers/filter.rs"
+    description: "NextFilters type alias changed from Option<(Option<...>, Option<...>)> to Option<IncludeExclude>"
+    why_fp: "Semantically identical -- the IncludeExclude struct wraps the same two Option fields, just with named access instead of tuple indexing."

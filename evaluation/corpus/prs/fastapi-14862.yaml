@@ -1,0 +1,33 @@
+repo: "fastapi/fastapi"
+pr_number: 14862
+head_sha: "aeb2d20ade4f577af8a431b5b2ee9b9868ddb104"
+base_sha: "58cdfc7f4b1ad22a4e6450319affb42d185775d9"
+languages: ["python"]
+size: "small"
+tags: ["refactor", "cleanup"]
+expected_findings:
+  - file_path: "fastapi/_compat/v2.py"
+    line_range: [259, 261]
+    category: "logic"
+    severity: "medium"
+    description: "Replacing f.type_ with f.field_info.annotation in get_definitions(). While semantically identical (type_ returned self.field_info.annotation), removing the type_ property entirely means any external code that accessed ModelField.type_ will break."
+    confidence: "verified"
+  - file_path: "fastapi/_compat/v2.py"
+    line_range: [102, 105]
+    category: "logic"
+    severity: "medium"
+    description: "The 'required' property was removed from ModelField. All callers are updated to use field.field_info.is_required() directly, but this is a breaking change for any third-party code that accessed ModelField.required."
+    confidence: "verified"
+  - file_path: "fastapi/dependencies/utils.py"
+    line_range: [523, 525]
+    category: "logic"
+    severity: "low"
+    description: "The assertion for Query parameters now uses field_annotation_is_scalar_sequence() directly on the annotation instead of is_scalar_sequence_field(). These should be equivalent but reviewer should confirm no edge case where field.type_ diverged from field.field_info.annotation."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "fastapi/_compat/v2.py"
+    description: "Removing is_bytes_field, is_bytes_sequence_field, is_sequence_field, is_scalar_sequence_field looks like lost functionality"
+    why_fp: "These were thin wrappers that accessed field.type_ or field.field_info.annotation and called the corresponding shared utility. The callers now call the shared utilities directly."
+  - file_path: "fastapi/_compat/__init__.py"
+    description: "New imports added for field_annotation_is_scalar_sequence, field_annotation_is_sequence, etc."
+    why_fp: "These functions already existed in shared.py but were only used indirectly through the now-removed wrapper functions. Exporting them directly is the correct approach."

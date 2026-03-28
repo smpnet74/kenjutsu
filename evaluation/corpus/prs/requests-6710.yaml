@@ -1,0 +1,30 @@
+repo: "psf/requests"
+pr_number: 6710
+head_sha: "92075b330a30b9883f466a43d3f7566ab849f91b"
+base_sha: "970e8cec988421bd43da57350723b05c8ce8dc7e"
+languages: ["python"]
+size: "small"
+tags: ["api-change", "refactor"]
+expected_findings:
+  - file_path: "src/requests/adapters.py"
+    line_range: [375, 414]
+    category: "api-change"
+    severity: "high"
+    description: "Internal _get_connection method renamed to public get_connection_with_tls_context. Breaking change for any subclass of HTTPAdapter that overrides _get_connection."
+    confidence: "verified"
+  - file_path: "src/requests/adapters.py"
+    line_range: [426, 440]
+    category: "api-change"
+    severity: "high"
+    description: "The old get_connection method now emits a DeprecationWarning. Subclass overrides of get_connection will no longer be called during normal request flow since send() now calls get_connection_with_tls_context instead."
+    confidence: "verified"
+  - file_path: "src/requests/adapters.py"
+    line_range: [552, 554]
+    category: "logic"
+    severity: "medium"
+    description: "send() now calls self.get_connection_with_tls_context() instead of self._get_connection(). If a subclass only overrides old get_connection, that override will be silently ignored."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "src/requests/adapters.py"
+    description: "The DeprecationWarning in get_connection doesn't mention a specific version for removal"
+    why_fp: "The warning message references the PR URL for migration details, which is reasonable for a library without a fixed deprecation timeline."

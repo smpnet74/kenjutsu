@@ -1,0 +1,30 @@
+repo: "pydantic/pydantic"
+pr_number: 12536
+head_sha: "d325de93875b081a49e9f8eca36f0e27e5ae2a09"
+base_sha: "6e6d648c33c8a0da26d0e108628af773ea45b442"
+languages: ["python"]
+size: "medium"
+tags: ["refactor"]
+expected_findings:
+  - file_path: "pydantic/_internal/_decorators.py"
+    line_range: [287, 290]
+    category: "bugfix"
+    severity: "high"
+    description: "bind_to_cls now does copy(self.info) instead of passing the same info reference. This fixes a mutation bug where config updates on a child class would mutate the parent's decorator info. A good reviewer should note this is actually a bugfix disguised as a refactor."
+    confidence: "verified"
+  - file_path: "pydantic/_internal/_decorators.py"
+    line_range: [429, 470]
+    category: "logic"
+    severity: "medium"
+    description: "The build() method MRO traversal changed to skip object using [1:-1] slice instead of [1:]. Reviewer should verify TypedDict classes use object as their last MRO entry, so [1:-1] correctly excludes it."
+    confidence: "verified"
+  - file_path: "pydantic/_internal/_decorators.py"
+    line_range: [470, 490]
+    category: "logic"
+    severity: "medium"
+    description: "The new _validate() method checks for duplicate field serializers across ALL field_serializers, not just when adding new ones. Reviewer should verify that overriding a field serializer in a subclass still works."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "pydantic/_internal/_decorators.py"
+    description: "isinstance check for ComputedFieldInfo appears as a bare statement with no effect"
+    why_fp: "Already present in the old code -- a no-op leftover from development. Not introduced by this PR."

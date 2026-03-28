@@ -1,0 +1,36 @@
+repo: "encode/httpx"
+pr_number: 3022
+head_sha: "cb71af3c28f30e08e874de367921091d5b4ba66d"
+base_sha: "5766bf58e20548f106e13e95d7064635a9b06941"
+languages: ["python"]
+size: "large"
+tags: ["api-change", "refactor", "breaking-change"]
+expected_findings:
+  - file_path: "httpx/_config.py"
+    line_range: [48, 80]
+    category: "logic"
+    severity: "critical"
+    description: "SSLContext now inherits from ssl.SSLContext, but the new __init__ takes verify/cert instead. Reviewer should verify ssl.SSLContext.__init__ is properly called."
+    confidence: "verified"
+  - file_path: "httpx/_api.py"
+    line_range: [48, 49]
+    category: "logic"
+    severity: "high"
+    description: "All top-level functions replace verify= and cert= with ssl_context=. This is a breaking API change."
+    confidence: "verified"
+  - file_path: "httpx/_client.py"
+    line_range: [656, 665]
+    category: "logic"
+    severity: "high"
+    description: "_init_transport and _init_proxy_transport no longer pass trust_env. SSL_CERT_FILE/SSL_CERT_DIR environment variable support appears to be silently dropped."
+    confidence: "verified"
+  - file_path: "httpx/_config.py"
+    line_range: [45, 100]
+    category: "logic"
+    severity: "medium"
+    description: "The create_ssl_context function is removed entirely. Code that used httpx.create_ssl_context() will break."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "docs/environment_variables.md"
+    description: "Removal of SSL_CERT_FILE, SSL_CERT_DIR, and SSLKEYLOGFILE documentation looks like lost functionality"
+    why_fp: "SSLKEYLOGFILE support is moved into the SSLContext class directly. SSL_CERT_FILE/SSL_CERT_DIR are intentionally not auto-loaded -- docs show how users can manually load them."

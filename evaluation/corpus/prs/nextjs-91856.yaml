@@ -1,0 +1,24 @@
+repo: "vercel/next.js"
+pr_number: 91856
+head_sha: "a68545ed2d057de91e73bd3c5a0170a1dce56325"
+base_sha: "aa3ba7ed15db36f1d21c827dd695a4e24a8955c6"
+languages: ["rust", "typescript"]
+size: "medium"
+tags: ["bugfix", "turbopack"]
+expected_findings:
+  - file_path: "turbopack/crates/turbopack-core/src/resolve/pattern.rs"
+    line_range: [1635, 1635]
+    category: "bug"
+    severity: "critical"
+    description: "The core bug fix: hardcoded index 0 was replaced with index in the read_matches fast path. This caused all alternatives to collapse to the same priority, making extension resolution order non-deterministic."
+    confidence: "verified"
+  - file_path: "turbopack/crates/turbopack-core/src/resolve/mod.rs"
+    line_range: [3640, 3700]
+    category: "logic"
+    severity: "medium"
+    description: "New test cases added for custom extension ordering. Reviewer should check that the test correctly asserts .web.tsx wins over .tsx when both files exist."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "turbopack/crates/turbopack-core/src/resolve/mod.rs"
+    description: "Many custom_extensions: None additions look like noise"
+    why_fp: "Necessary struct field additions to existing tests after adding the new field to TestParams."

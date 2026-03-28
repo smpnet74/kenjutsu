@@ -1,0 +1,24 @@
+repo: "prisma/prisma"
+pr_number: 29382
+head_sha: "7cc1a4c27549b9ad3e459a03692a067edd089fa6"
+base_sha: "74839a9078e233c8bf8f7fe7416832d3bd6e4175"
+languages: ["typescript"]
+size: "medium"
+tags: ["bugfix", "performance", "cache"]
+expected_findings:
+  - file_path: "packages/client/src/runtime/core/engines/client/ClientEngine.ts"
+    line_range: [478, 493]
+    category: "perf"
+    severity: "high"
+    description: "createMany and createManyAndReturn queries are excluded from query plan cache. The issue is that each createMany with different column patterns generates a unique cache key, leading to unbounded cache growth."
+    confidence: "verified"
+  - file_path: "packages/client/src/runtime/core/engines/client/ClientEngine.ts"
+    line_range: [482, 482]
+    category: "logic"
+    severity: "medium"
+    description: "The isCacheable check only excludes createMany and createManyAndReturn. Reviewer should consider whether other variable-parameter operations could have similar cache bloat issues."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "packages/client/tests/functional/issues/29331-query-plan-cache-bloat/tests.ts"
+    description: "Test uses Math.random() making it non-deterministic"
+    why_fp: "Intentional: the test deliberately creates varied parameter patterns to reproduce cache bloat."

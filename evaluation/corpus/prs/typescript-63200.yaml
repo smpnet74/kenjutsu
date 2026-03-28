@@ -1,0 +1,24 @@
+repo: "microsoft/TypeScript"
+pr_number: 63200
+head_sha: "ce3be129d449c0619365c1ed02d12f863cd707b7"
+base_sha: "6cf81701bc9666957064dad013e938c9c5af2c33"
+languages: ["typescript"]
+size: "medium"
+tags: ["bugfix", "dx-improvement", "error-messages"]
+expected_findings:
+  - file_path: "src/compiler/checker.ts"
+    line_range: [6438, 6438]
+    category: "logic"
+    severity: "low"
+    description: "When nodeSymbol is falsy, symbolName is undefined, causing fallback to the old error message (TS2742) instead of the new one (TS2883). Reviewer should verify this fallback is intentional."
+    confidence: "verified"
+  - file_path: "src/compiler/types.ts"
+    line_range: [1, 1]
+    category: "logic"
+    severity: "low"
+    description: "The SymbolTracker interface signature change (adding optional symbolName parameter) is a breaking change for any external implementations of the interface."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "src/compiler/diagnosticMessages.json"
+    description: "New diagnostic code 2883 uses {2} before {1} in the message template which looks like a parameter ordering mistake"
+    why_fp: "Intentional -- the parameters are (declarationName, specifier, symbolName) and the message reads in the correct semantic order."
