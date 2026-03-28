@@ -1,1 +1,1 @@
-"""Kenjutsu server-side request handling."""
+"""Kenjutsu server package — FastAPI routers and endpoint handlers."""
