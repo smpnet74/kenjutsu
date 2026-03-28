@@ -28,7 +28,8 @@ def upgrade() -> None:
     # ---------------------------------------------------------------------------
     # Create the enum type directly in PostgreSQL
     op.execute(
-        "CREATE TYPE review_status AS ENUM ('queued', 'processing', 'complete', 'failed', 'superseded', 'aborted')"
+        "CREATE TYPE IF NOT EXISTS review_status AS ENUM "
+        "('queued', 'processing', 'complete', 'failed', 'superseded', 'aborted')"
     )
 
     # ---------------------------------------------------------------------------

@@ -84,7 +84,7 @@ class Review(Base):
     context_source = sa.Column(sa.Text, nullable=True)
     trigger = sa.Column(sa.Text, nullable=False)
     status = sa.Column(
-        sa.Enum(ReviewStatus, name="review_status"),
+        sa.Enum(ReviewStatus, name="review_status", create_type=False),
         nullable=False,
         default=ReviewStatus.queued,
     )
