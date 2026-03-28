@@ -23,11 +23,9 @@ if config.config_file_name is not None:
 # Import the declarative Base so Alembic can detect schema changes.
 # Models that add tables must import Base from kenjutsu.database and
 # register themselves before this file runs.
+# Include all model modules so their tables are reflected in Base.metadata.
+import kenjutsu.models  # noqa: E402, F401
 from kenjutsu.database import Base  # noqa: E402
-
-# Include all model modules here so their tables are reflected in Base.metadata.
-# Add imports as models are created (DEM-141):
-# from kenjutsu.models import ...  (uncomment as models are added in DEM-141)
 
 target_metadata = Base.metadata
 
