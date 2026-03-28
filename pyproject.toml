@@ -14,6 +14,7 @@ dependencies = [
     "pydantic>=2.10,<3",
     "httpx>=0.28,<1",
     "jinja2>=3.1,<4",
+    "pyjwt[crypto]>=2.9,<3",
     # Tree-sitter: AST context extension (Phase 1 — 1.4b)
     "tree-sitter>=0.23,<1",
     "tree-sitter-python>=0.23,<1",
@@ -68,7 +69,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "S105", "S106", "S603", "S607", "TC003"]
+"tests/**" = ["S101", "S105", "S106", "S107", "S603", "S607", "TC003"]
 "kenjutsu/server/webhook.py" = ["B008"]
 # SQLAlchemy Mapped[] annotations require runtime imports even with PEP 563
 "kenjutsu/db/models.py" = ["TCH003"]
