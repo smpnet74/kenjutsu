@@ -1,0 +1,30 @@
+repo: "fastapi/fastapi"
+pr_number: 14372
+head_sha: "471eb2ec3c112595c6c336aab78f46559be98257"
+base_sha: "566e3157a5517784c741dbf36e39687af326fe90"
+languages: ["python"]
+size: "small"
+tags: ["bugfix", "enhancement"]
+expected_findings:
+  - file_path: "fastapi/params.py"
+    line_range: [765, 765]
+    category: "logic"
+    severity: "high"
+    description: "Making Depends frozen (frozen=True) is a breaking change for any code that mutates Depends instances after creation. The old code in analyze_param used 'depends.dependency = type_annotation' which would now raise FrozenInstanceError. The corresponding change in utils.py to use dataclasses.replace() handles the internal case, but third-party code that mutates Depends objects will break."
+    confidence: "verified"
+  - file_path: "fastapi/params.py"
+    line_range: [771, 771]
+    category: "logic"
+    severity: "medium"
+    description: "Security(Depends) is also frozen. Since Security has a 'scopes' field of type Optional[Sequence[str]], hashability depends on scopes being a hashable sequence (e.g., tuple). If users pass a list for scopes, hash() will raise TypeError because lists are not hashable. The test only checks Security(dep) without scopes."
+    confidence: "verified"
+  - file_path: "fastapi/dependencies/utils.py"
+    line_range: [432, 432]
+    category: "style"
+    severity: "low"
+    description: "Using dataclasses.replace() creates a full copy of the Depends object just to set one field. This is correct but slightly less obvious than direct assignment."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "fastapi/params.py"
+    description: "frozen=True prevents subclassing with mutable fields"
+    why_fp: "Security extends Depends and its additional 'scopes' field is Optional[Sequence[str]] which is fine for frozen dataclasses. The frozen constraint applies to instance mutation, not to field types themselves."

@@ -1,0 +1,30 @@
+repo: "pydantic/pydantic"
+pr_number: 12563
+head_sha: "808e4d1cbf67612ff9e40fe3dc9a2b64fc5bf2e1"
+base_sha: "b834e9845de3fadc59a21fd226fd7695f03020c6"
+languages: ["python"]
+size: "medium"
+tags: ["refactor", "bugfix"]
+expected_findings:
+  - file_path: "pydantic/_internal/_fields.py"
+    line_range: [422, 437]
+    category: "logic"
+    severity: "high"
+    description: "The new PydanticExtraInfo is created by looking up '__pydantic_extra__' in type_hints. If type_hints uses deferred evaluation, the complete flag may be False. Reviewer should verify that the deferred annotation path correctly marks complete=False and that model_rebuild properly re-evaluates it."
+    confidence: "verified"
+  - file_path: "pydantic/_internal/_model_construction.py"
+    line_range: [345, 356]
+    category: "logic"
+    severity: "medium"
+    description: "__pydantic_fields_complete__ now checks both field completeness AND extra_info completeness. Models with incomplete __pydantic_extra__ annotations will trigger rebuilds. Reviewer should verify this doesn't cause unnecessary rebuilds for models that don't use __pydantic_extra__."
+    confidence: "verified"
+  - file_path: "pydantic/_internal/_generate_schema.py"
+    line_range: [804, 825]
+    category: "logic"
+    severity: "medium"
+    description: "The __pydantic_extra__ annotation handling was simplified from MRO traversal to using pre-computed extra_info. Reviewer should verify that inheritance of __pydantic_extra__ annotations still works correctly."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "pydantic/_internal/_generate_schema.py"
+    description: "The loop over cls.__mro__ for extras_annotation was removed entirely"
+    why_fp: "MRO traversal is now handled by collect_model_fields which already walks the MRO for type hints. The result is stored in PydanticExtraInfo."

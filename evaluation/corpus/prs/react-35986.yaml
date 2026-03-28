@@ -1,0 +1,18 @@
+repo: "facebook/react"
+pr_number: 35986
+head_sha: "a6564b0ebd1c9216b3ccb4e66282548c005c1c34"
+base_sha: "8f4150605449efe909822d8b20fe529d85851afe"
+languages: ["javascript"]
+size: "large"
+tags: ["refactor", "devtools"]
+expected_findings:
+  - file_path: "packages/react-devtools-shared/src/backend/fiber/renderer.js"
+    line_range: [133, 133]
+    category: "style"
+    severity: "low"
+    description: "The extraction moves getInternalReactConstants to a new file. Reviewer should verify that all previously-used imports are properly re-exported or imported from the correct location in the new file."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "packages/react-devtools-shared/src/backend/fiber/shared/DevToolsFiberInternalReactConstants.js"
+    description: "517-line new file looks like it could contain logic changes mixed in with the extraction"
+    why_fp: "This is a pure code move -- the getInternalReactConstants function and its dependencies were extracted verbatim with no logic changes."

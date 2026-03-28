@@ -14,13 +14,22 @@ dependencies = [
     "pydantic>=2.10,<3",
     "httpx>=0.28,<1",
     "jinja2>=3.1,<4",
+    # Tree-sitter: AST context extension (Phase 1 — 1.4b)
+    "tree-sitter>=0.23,<1",
+    "tree-sitter-python>=0.23,<1",
+    "tree-sitter-javascript>=0.23,<1",
+    "tree-sitter-typescript>=0.23,<1",
+    "tree-sitter-go>=0.23,<1",
+    "tree-sitter-java>=0.23,<1",
+    "tree-sitter-rust>=0.23,<1",
+    "alembic>=1.14,<2",
+    "psycopg[binary]>=3.2,<4",
+    "sqlalchemy>=2.0,<3",
+    "dbos>=2.0,<3",
 ]
 
-# Phase 1 additions (add when implementation starts):
-# "litellm>=1.40"       — LLM abstraction (Phase 2)
-# "alembic>=1.14,<2"    — DB migrations (Phase 1)
-# "psycopg[binary]>=3.2,<4" — PostgreSQL driver (Phase 1)
-# "sqlalchemy>=2.0,<3"  — ORM (Phase 1)
+# Phase 2 additions:
+# "litellm>=1.40"       — LLM abstraction
 
 [project.optional-dependencies]
 dev = [
@@ -31,6 +40,7 @@ dev = [
     "pyright>=1.1,<2",
     "bandit>=1.8,<2",
     "pip-audit>=2.7,<3",
+    "requests>=2.33.0",  # CVE-2026-25645: force transitive dep to patched version
 ]
 
 [tool.ruff]
@@ -57,7 +67,8 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "S106"]
+"tests/**" = ["S101", "S105", "S106", "S603", "S607", "TC003"]
+"kenjutsu/server/webhook.py" = ["B008"]
 
 [tool.pyright]
 pythonVersion = "3.12"

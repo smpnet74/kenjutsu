@@ -1,0 +1,24 @@
+repo: "vercel/next.js"
+pr_number: 91847
+head_sha: "2dd7fd062bcb74b9ca7bda7d697617940b0aa5e0"
+base_sha: "6c3295f99c23266720780db4f371f2884b1a5292"
+languages: ["typescript"]
+size: "medium"
+tags: ["bugfix", "typescript", "deprecation", "config"]
+expected_findings:
+  - file_path: "packages/next/src/lib/typescript/writeConfigurationDefaults.ts"
+    line_range: [98, 130]
+    category: "logic"
+    severity: "high"
+    description: "The moduleResolution default now branches on preferBundlerResolution. Reviewer should verify that existing projects using commonjs module with node moduleResolution don't break during upgrade to TS 5+."
+    confidence: "verified"
+  - file_path: "packages/next/src/lib/typescript/writeConfigurationDefaults.ts"
+    line_range: [178, 186]
+    category: "logic"
+    severity: "medium"
+    description: "The moduleResolutionMap now uses Node10 fallback via optional chaining. Reviewer should verify this works on TS < 5.0 where ModuleResolutionKind.Node10 may not exist."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "test/integration/tsconfig-verifier/test/index.test.ts"
+    description: "Large number of 'node' to 'bundler' replacements in test snapshots"
+    why_fp: "Expected test snapshot updates reflecting the new default moduleResolution value."

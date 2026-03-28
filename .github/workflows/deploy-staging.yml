@@ -1,0 +1,145 @@
+# Kenjutsu Staging Deployment Pipeline
+#
+# Triggers after CI passes on main. Builds a Docker image, pushes to GHCR,
+# deploys to Fly.io staging, waits for /health to return 200, and rolls back
+# the previous release if the health check fails.
+#
+# Required GitHub Environment "staging" (Settings → Environments):
+#   Secrets:
+#     FLY_API_TOKEN — Fly.io deploy token for the staging app
+#   Variables:
+#     FLY_APP_NAME  — Fly.io application name (e.g. kenjutsu-staging)
+#     STAGING_URL   — Public base URL of the staging app (e.g. https://kenjutsu-staging.fly.dev)
+#
+# Action SHAs pinned for supply-chain safety (same policy as ci.yml).
+
+name: Deploy Staging
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to Fly.io Staging
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    environment: staging
+
+    steps:
+      # -----------------------------------------------------------------------
+      # Checkout the exact commit that CI verified
+      # -----------------------------------------------------------------------
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      # -----------------------------------------------------------------------
+      # Compute a lowercase image reference (GHCR requires all-lowercase paths)
+      # -----------------------------------------------------------------------
+      - name: Compute image reference
+        id: image
+        run: echo "ref=ghcr.io/${REPO,,}:${SHA}" >> "$GITHUB_OUTPUT"
+        env:
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+
+      # -----------------------------------------------------------------------
+      # Build and push Docker image to GitHub Container Registry
+      # -----------------------------------------------------------------------
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.image.outputs.ref }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # -----------------------------------------------------------------------
+      # Deploy via Fly.io
+      # -----------------------------------------------------------------------
+      - name: Set up flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@63da3ecc5e2793b98a3f2519b3d75d4f4c11cec2 # master
+
+      - name: Record current release version for rollback
+        id: pre-deploy
+        run: |
+          version=$(flyctl releases list \
+            --app "${{ vars.FLY_APP_NAME }}" \
+            --json 2>/dev/null \
+            | jq -r 'map(select(.Status == "complete")) | .[0].Version // empty')
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Deploy image to staging
+        run: |
+          flyctl deploy \
+            --app "${{ vars.FLY_APP_NAME }}" \
+            --image "${{ steps.image.outputs.ref }}" \
+            --strategy rolling \
+            --wait-timeout 300
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      # -----------------------------------------------------------------------
+      # Health check — poll /health until 200 or timeout
+      # -----------------------------------------------------------------------
+      - name: Wait for health check
+        id: health
+        run: |
+          url="${{ vars.STAGING_URL }}/health"
+          max_attempts=20
+          interval=15
+          for i in $(seq 1 "$max_attempts"); do
+            echo "Attempt $i/$max_attempts — GET $url"
+            if curl --silent --fail --max-time 10 "$url" | grep -q '"ok"'; then
+              echo "Health check passed"
+              exit 0
+            fi
+            echo "Not healthy yet — waiting ${interval}s"
+            sleep "$interval"
+          done
+          echo "Health check failed after $((max_attempts * interval))s"
+          exit 1
+        continue-on-error: true
+
+      # -----------------------------------------------------------------------
+      # Rollback if health check failed
+      # -----------------------------------------------------------------------
+      - name: Rollback to previous release
+        if: steps.health.outcome == 'failure' && steps.pre-deploy.outputs.version != ''
+        run: |
+          echo "Rolling back to version ${{ steps.pre-deploy.outputs.version }}"
+          flyctl releases rollback "${{ steps.pre-deploy.outputs.version }}" \
+            --app "${{ vars.FLY_APP_NAME }}"
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      - name: Fail job after rollback
+        if: steps.health.outcome == 'failure'
+        run: |
+          echo "Deploy failed health check — rolled back to previous release"
+          exit 1

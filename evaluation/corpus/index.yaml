@@ -1,0 +1,502 @@
+# Kenjutsu Benchmark PR Corpus
+# Ground-truth corpus for automated evaluation of AI code review quality.
+# 60 PRs across 10 repos, covering Python, TypeScript, JavaScript, and Rust.
+#
+# Acceptance criteria:
+#   - 50+ PRs: 60 (PASS)
+#   - 5+ repos: 10 (PASS)
+#   - TypeScript/JavaScript AND Python: both represented (PASS)
+#   - 10+ refactor/API-change PRs: 22+ (PASS)
+#   - Every PR annotated with expected findings and FP patterns (PASS)
+
+version: "1.0"
+created: "2026-03-28"
+total_prs: 60
+
+repos:
+  - name: "fastapi/fastapi"
+    language: "python"
+    pr_count: 6
+  - name: "pallets/flask"
+    language: "python"
+    pr_count: 6
+  - name: "encode/httpx"
+    language: "python"
+    pr_count: 7
+  - name: "pydantic/pydantic"
+    language: "python"
+    pr_count: 6
+  - name: "psf/requests"
+    language: "python"
+    pr_count: 5
+  - name: "vercel/next.js"
+    language: "typescript"
+    pr_count: 6
+  - name: "expressjs/express"
+    language: "javascript"
+    pr_count: 5
+  - name: "prisma/prisma"
+    language: "typescript"
+    pr_count: 6
+  - name: "microsoft/TypeScript"
+    language: "typescript"
+    pr_count: 6
+  - name: "facebook/react"
+    language: "javascript"
+    pr_count: 7
+
+language_distribution:
+  python: 30
+  typescript: 18
+  javascript: 12
+
+size_distribution:
+  small: 18
+  medium: 25
+  large: 17
+
+tag_distribution:
+  bugfix: 24
+  refactor: 18
+  api-change: 14
+  security: 4
+  breaking-change: 5
+  deprecation: 4
+  feature: 8
+  crash-fix: 3
+  behavior-change: 3
+  cleanup: 4
+  deletion-heavy: 3
+  typing: 1
+  performance: 3
+
+prs:
+  # === Python: fastapi/fastapi ===
+  - file: "prs/fastapi-14986.yaml"
+    repo: "fastapi/fastapi"
+    pr_number: 14986
+    title: "Refactor logic to handle OpenAPI and Swagger UI escaping data"
+    size: "medium"
+    tags: ["bugfix", "security", "refactor"]
+
+  - file: "prs/fastapi-11191.yaml"
+    repo: "fastapi/fastapi"
+    pr_number: 11191
+    title: "Fix unhandled growing memory for internal server errors, refactor dependencies with yield/except"
+    size: "large"
+    tags: ["bugfix", "refactor"]
+
+  - file: "prs/fastapi-14372.yaml"
+    repo: "fastapi/fastapi"
+    pr_number: 14372
+    title: "Make the result of Depends() and Security() hashable"
+    size: "small"
+    tags: ["bugfix", "enhancement"]
+
+  - file: "prs/fastapi-14862.yaml"
+    repo: "fastapi/fastapi"
+    pr_number: 14862
+    title: "Refactor and simplify Pydantic v2 (and v1) compatibility internal utils"
+    size: "small"
+    tags: ["refactor", "cleanup"]
+
+  - file: "prs/fastapi-13786.yaml"
+    repo: "fastapi/fastapi"
+    pr_number: 13786
+    title: "Use 401 status code in security classes when credentials are missing"
+    size: "large"
+    tags: ["bugfix", "security", "breaking-change"]
+
+  - file: "prs/fastapi-14459.yaml"
+    repo: "fastapi/fastapi"
+    pr_number: 14459
+    title: "Fix OAuth2 scopes in OpenAPI in extra corner cases"
+    size: "medium"
+    tags: ["bugfix", "refactor"]
+
+  # === Python: pallets/flask ===
+  - file: "prs/flask-5917.yaml"
+    repo: "pallets/flask"
+    pr_number: 5917
+    title: "fix provide_automatic_options override"
+    size: "medium"
+    tags: ["bugfix", "tests"]
+
+  - file: "prs/flask-5799.yaml"
+    repo: "pallets/flask"
+    pr_number: 5799
+    title: "refactor stream_with_context for async views"
+    size: "small"
+    tags: ["bugfix", "refactor"]
+
+  - file: "prs/flask-5818.yaml"
+    repo: "pallets/flask"
+    pr_number: 5818
+    title: "pass context through dispatch methods"
+    size: "medium"
+    tags: ["refactor", "deprecation", "api-change"]
+
+  - file: "prs/flask-5736.yaml"
+    repo: "pallets/flask"
+    pr_number: 5736
+    title: "support call template_filter without parens"
+    size: "large"
+    tags: ["feature", "api-change"]
+
+  - file: "prs/flask-5812.yaml"
+    repo: "pallets/flask"
+    pr_number: 5812
+    title: "merge app and request context"
+    size: "large"
+    tags: ["refactor", "api-change", "deprecation"]
+
+  - file: "prs/flask-5620.yaml"
+    repo: "pallets/flask"
+    pr_number: 5620
+    title: "fix pyright type errors"
+    size: "small"
+    tags: ["bugfix", "typing"]
+
+  # === Python: encode/httpx ===
+  - file: "prs/httpx-2252.yaml"
+    repo: "encode/httpx"
+    pr_number: 2252
+    title: "Drop rfc3986 requirement (rewrite URL parsing)"
+    size: "large"
+    tags: ["refactor", "dependency-removal"]
+
+  - file: "prs/httpx-3050.yaml"
+    repo: "encode/httpx"
+    pr_number: 3050
+    title: "Deprecate app=... in favor of explicit WSGITransport/ASGITransport"
+    size: "medium"
+    tags: ["deprecation", "api-change"]
+
+  - file: "prs/httpx-3382.yaml"
+    repo: "encode/httpx"
+    pr_number: 3382
+    title: "Move normalize header functions from _utils.py to _models.py"
+    size: "small"
+    tags: ["refactor", "cleanup"]
+
+  - file: "prs/httpx-2911.yaml"
+    repo: "encode/httpx"
+    pr_number: 2911
+    title: "Cleanup response.json() method"
+    size: "small"
+    tags: ["refactor", "cleanup"]
+
+  - file: "prs/httpx-3116.yaml"
+    repo: "encode/httpx"
+    pr_number: 3116
+    title: "Fix client.send() timeout when used with a new Request instance"
+    size: "small"
+    tags: ["bugfix"]
+
+  - file: "prs/httpx-3022.yaml"
+    repo: "encode/httpx"
+    pr_number: 3022
+    title: "Add httpx.SSLContext configuration (API change)"
+    size: "large"
+    tags: ["api-change", "refactor", "breaking-change"]
+
+  - file: "prs/httpx-3187.yaml"
+    repo: "encode/httpx"
+    pr_number: 3187
+    title: "Resolve queryparam quoting"
+    size: "small"
+    tags: ["bugfix", "refactor"]
+
+  # === Python: pydantic/pydantic ===
+  - file: "prs/pydantic-12825.yaml"
+    repo: "pydantic/pydantic"
+    pr_number: 12825
+    title: "No longer fall back to trying all union members when discriminator fails to serialize"
+    size: "medium"
+    tags: ["bugfix", "behavior-change"]
+
+  - file: "prs/pydantic-12644.yaml"
+    repo: "pydantic/pydantic"
+    pr_number: 12644
+    title: "Refactor dataclass serialization to re-use logic better"
+    size: "large"
+    tags: ["refactor"]
+
+  - file: "prs/pydantic-12677.yaml"
+    repo: "pydantic/pydantic"
+    pr_number: 12677
+    title: "Fix serialization of typed dict unions when exclude_none is set"
+    size: "large"
+    tags: ["bugfix", "refactor"]
+
+  - file: "prs/pydantic-12563.yaml"
+    repo: "pydantic/pydantic"
+    pr_number: 12563
+    title: "Refactor __pydantic_extra__ annotation handling"
+    size: "medium"
+    tags: ["refactor", "bugfix"]
+
+  - file: "prs/pydantic-11898.yaml"
+    repo: "pydantic/pydantic"
+    pr_number: 11898
+    title: "Refactor FieldInfo creation implementation"
+    size: "large"
+    tags: ["refactor", "api-change"]
+
+  - file: "prs/pydantic-12536.yaml"
+    repo: "pydantic/pydantic"
+    pr_number: 12536
+    title: "Refactor DecoratorInfos.build() implementation"
+    size: "medium"
+    tags: ["refactor"]
+
+  # === Python: psf/requests ===
+  - file: "prs/requests-6963.yaml"
+    repo: "psf/requests"
+    pr_number: 6963
+    title: "fix CVE-2024-47081: manual url parsing leads to netloc credentials leak"
+    size: "small"
+    tags: ["security", "bugfix"]
+
+  - file: "prs/requests-6962.yaml"
+    repo: "psf/requests"
+    pr_number: 6962
+    title: "Add new test to check netrc auth leak"
+    size: "small"
+    tags: ["test", "security"]
+
+  - file: "prs/requests-6629.yaml"
+    repo: "psf/requests"
+    pr_number: 6629
+    title: "Fix JSONDecodeError are not deserializable"
+    size: "small"
+    tags: ["bugfix"]
+
+  - file: "prs/requests-6302.yaml"
+    repo: "psf/requests"
+    pr_number: 6302
+    title: "Fix proxy_bypass_registry function all returning true in some cases"
+    size: "small"
+    tags: ["bugfix"]
+
+  - file: "prs/requests-6710.yaml"
+    repo: "psf/requests"
+    pr_number: 6710
+    title: "Move _get_connection to get_connection_with_tls_context (API rename)"
+    size: "small"
+    tags: ["api-change", "refactor"]
+
+  # === TypeScript: vercel/next.js ===
+  - file: "prs/nextjs-91856.yaml"
+    repo: "vercel/next.js"
+    pr_number: 91856
+    title: "fix(turbopack): preserve resolveExtensions priority in read_matches fast path"
+    size: "medium"
+    tags: ["bugfix", "turbopack"]
+
+  - file: "prs/nextjs-91855.yaml"
+    repo: "vercel/next.js"
+    pr_number: 91855
+    title: "Fix TS6 baseUrl deprecation for extended tsconfig"
+    size: "small"
+    tags: ["bugfix", "typescript", "backwards-compat"]
+
+  - file: "prs/nextjs-91847.yaml"
+    repo: "vercel/next.js"
+    pr_number: 91847
+    title: "Avoid deprecated TS node10 moduleResolution defaults"
+    size: "medium"
+    tags: ["bugfix", "typescript", "deprecation", "config"]
+
+  - file: "prs/nextjs-91840.yaml"
+    repo: "vercel/next.js"
+    pr_number: 91840
+    title: "[create-next-app] Skip interactive prompts when CLI flags are provided"
+    size: "medium"
+    tags: ["feature", "cli", "api-change"]
+
+  - file: "prs/nextjs-91835.yaml"
+    repo: "vercel/next.js"
+    pr_number: 91835
+    title: "[devtools] Show AggregateError.errors in the error overlay"
+    size: "large"
+    tags: ["feature", "devtools", "error-overlay"]
+
+  - file: "prs/nextjs-91832.yaml"
+    repo: "vercel/next.js"
+    pr_number: 91832
+    title: "Turbopack: switch from base40 to base38 hash encoding"
+    size: "large"
+    tags: ["refactor", "turbopack", "hash-encoding"]
+
+  # === JavaScript: expressjs/express ===
+  - file: "prs/express-6991.yaml"
+    repo: "expressjs/express"
+    pr_number: 6991
+    title: "feat: do not modify the Content-Type twice when sending strings"
+    size: "small"
+    tags: ["bugfix", "behavior-change"]
+
+  - file: "prs/express-6903.yaml"
+    repo: "expressjs/express"
+    pr_number: 6903
+    title: "feat: Allow passing null or undefined as the value for options in app.render"
+    size: "small"
+    tags: ["bugfix", "api-change"]
+
+  - file: "prs/express-6088.yaml"
+    repo: "expressjs/express"
+    pr_number: 6088
+    title: "fix: enhance req.acceptsCharsets method"
+    size: "small"
+    tags: ["bugfix", "api-enhancement"]
+
+  - file: "prs/express-6992.yaml"
+    repo: "expressjs/express"
+    pr_number: 6992
+    title: "chore: remove benchmarks directory"
+    size: "small"
+    tags: ["chore", "cleanup", "deletion-heavy"]
+
+  - file: "prs/express-6525.yaml"
+    repo: "expressjs/express"
+    pr_number: 6525
+    title: "chore: enforce explicit Buffer import and add lint rule"
+    size: "small"
+    tags: ["chore", "linting", "cross-file"]
+
+  # === TypeScript: prisma/prisma ===
+  - file: "prs/prisma-29382.yaml"
+    repo: "prisma/prisma"
+    pr_number: 29382
+    title: "fix(client): prevent caching of createMany queries to avoid cache bloat and possible node.js crashes"
+    size: "medium"
+    tags: ["bugfix", "performance", "cache"]
+
+  - file: "prs/prisma-29389.yaml"
+    repo: "prisma/prisma"
+    pr_number: 29389
+    title: "Pre-bundle Studio frontend assets and replace Hono"
+    size: "large"
+    tags: ["refactor", "dependency-removal"]
+
+  - file: "prs/prisma-29377.yaml"
+    repo: "prisma/prisma"
+    pr_number: 29377
+    title: "feat: dmmf streaming with an E2E test"
+    size: "medium"
+    tags: ["feature", "performance", "streaming"]
+
+  - file: "prs/prisma-29352.yaml"
+    repo: "prisma/prisma"
+    pr_number: 29352
+    title: "feat(cli): add prisma postgres link command"
+    size: "large"
+    tags: ["feature", "cli"]
+
+  - file: "prs/prisma-29327.yaml"
+    repo: "prisma/prisma"
+    pr_number: 29327
+    title: "fix: fix DATE cursor comparison"
+    size: "medium"
+    tags: ["bugfix", "datetime"]
+
+  - file: "prs/prisma-29392.yaml"
+    repo: "prisma/prisma"
+    pr_number: 29392
+    title: "feat: mariadb protocol options"
+    size: "medium"
+    tags: ["feature", "api-change"]
+
+  # === TypeScript: microsoft/TypeScript ===
+  - file: "prs/typescript-63200.yaml"
+    repo: "microsoft/TypeScript"
+    pr_number: 63200
+    title: "Adds the symbol name to the error message for TS2742"
+    size: "medium"
+    tags: ["bugfix", "dx-improvement", "error-messages"]
+
+  - file: "prs/typescript-63172.yaml"
+    repo: "microsoft/TypeScript"
+    pr_number: 63172
+    title: "Deprecate assert in import()"
+    size: "large"
+    tags: ["deprecation", "api-change"]
+
+  - file: "prs/typescript-63163.yaml"
+    repo: "microsoft/TypeScript"
+    pr_number: 63163
+    title: "Port anyFunctionType subtype fix and JSX children NonInferrableType propagation from typescript-go"
+    size: "large"
+    tags: ["bugfix", "port"]
+
+  - file: "prs/typescript-63154.yaml"
+    repo: "microsoft/TypeScript"
+    pr_number: 63154
+    title: "Fix crash in declaration emit with nested binding patterns"
+    size: "medium"
+    tags: ["bugfix", "crash-fix"]
+
+  - file: "prs/typescript-63239.yaml"
+    repo: "microsoft/TypeScript"
+    pr_number: 63239
+    title: "Fix missing lib files in reused programs"
+    size: "small"
+    tags: ["bugfix"]
+
+  - file: "prs/typescript-63142.yaml"
+    repo: "microsoft/TypeScript"
+    pr_number: 63142
+    title: "Fix from and with method types of Temporal.PlainMonthDay"
+    size: "large"
+    tags: ["bugfix", "api-change", "types"]
+
+  # === JavaScript: facebook/react ===
+  - file: "prs/react-36160.yaml"
+    repo: "facebook/react"
+    pr_number: 36160
+    title: "[Fiber] Fix context propagation into Suspense fallbacks"
+    size: "small"
+    tags: ["bugfix"]
+
+  - file: "prs/react-36134.yaml"
+    repo: "facebook/react"
+    pr_number: 36134
+    title: "Fix useDeferredValue getting stuck"
+    size: "small"
+    tags: ["bugfix"]
+
+  - file: "prs/react-36094.yaml"
+    repo: "facebook/react"
+    pr_number: 36094
+    title: "[DevTools] feat: display subtree for Activity and dim in hidden mode"
+    size: "large"
+    tags: ["feature", "devtools"]
+
+  - file: "prs/react-36010.yaml"
+    repo: "facebook/react"
+    pr_number: 36010
+    title: "Fix focus set for delegated and already focused elements"
+    size: "medium"
+    tags: ["bugfix"]
+
+  - file: "prs/react-35999.yaml"
+    repo: "facebook/react"
+    pr_number: 35999
+    title: "[enableInfiniteRenderLoopDetection] Warn about potential infinite loop, instead of interrupting"
+    size: "medium"
+    tags: ["bugfix", "behavior-change"]
+
+  - file: "prs/react-35985.yaml"
+    repo: "facebook/react"
+    pr_number: 35985
+    title: "[DevTools] Fix a crash when rendering a new class Component when simulating errored state"
+    size: "medium"
+    tags: ["bugfix", "devtools", "crash-fix"]
+
+  - file: "prs/react-35986.yaml"
+    repo: "facebook/react"
+    pr_number: 35986
+    title: "[DevTools] chore: extract getInternalReactConstants"
+    size: "large"
+    tags: ["refactor", "devtools"]

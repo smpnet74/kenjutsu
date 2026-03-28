@@ -1,0 +1,30 @@
+repo: "prisma/prisma"
+pr_number: 29392
+head_sha: "109e264f0e715aa51e3fefa0cf5a05196518988e"
+base_sha: "14c3c2eb02173048d5ac3a908598a8d7f2244598"
+languages: ["typescript"]
+size: "medium"
+tags: ["feature", "api-change"]
+expected_findings:
+  - file_path: "packages/adapter-mariadb/src/mariadb.ts"
+    line_range: [222, 247]
+    category: "logic"
+    severity: "high"
+    description: "Constructor now defaults prepareCacheLength to 0. This is a behavioral change from the driver's default. Reviewer should verify this is intentional and documented."
+    confidence: "verified"
+  - file_path: "packages/adapter-mariadb/src/mariadb.ts"
+    line_range: [69, 73]
+    category: "logic"
+    severity: "medium"
+    description: "New useTextProtocol option switches between text and binary protocol. Reviewer should verify text protocol path correctly handles parameter binding and type coercion."
+    confidence: "verified"
+  - file_path: "packages/adapter-mariadb/src/mariadb.ts"
+    line_range: [309, 317]
+    category: "logic"
+    severity: "low"
+    description: "rewriteConnectionString now takes a URL object instead of string|object. This is a breaking change to the exported function signature."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "packages/adapter-mariadb/src/mariadb.ts"
+    description: "MariaDbTransaction constructor parameter order changed"
+    why_fp: "Necessary refactor to thread the new mariadbOptions through the transaction class hierarchy."

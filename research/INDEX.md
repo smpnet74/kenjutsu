@@ -12,6 +12,9 @@
 | 6 | [Differentiation](dem-104/differentiation.md) | Market positioning analysis — false positive problem, governance gap, and Paperclip multi-agent advantage | Review |
 | 7 | [Technical Feasibility](dem-104/technical-feasibility.md) | MVP architecture, build-from-scratch recommendation, 10-14 week estimate, and primary technical risks | Review |
 | 8 | [Retrieval Framework Evaluation (v3.1)](dem-114/retrieval-framework-evaluation.md) | Evaluation of 10 frameworks (RAG + agent) with consolidated v1 deep-dive appendices (LightRAG architecture, R2R, Cognee, GraphRAG, AST vs LLM finding) | Review |
+| 9 | [Prompt Evolution Catalog](dem-139/prompt-evolution-catalog.md) | PR-Agent prompt engineering patterns across /review, /describe, /improve, /ask — evolution timeline, self-reflection scoring, edge cases, config surface, lessons for Kenjutsu | Review |
+| 9a | [Appendix: Timeline](dem-139/appendix-timeline.md) | Chronological change log of all significant prompt changes across 4 tools | Review |
+| 9b | [Appendix: Config Surface](dem-139/appendix-config-surface.md) | Full configuration surface map — settings affecting prompt behavior | Review |
 
 ## How to Read This Research
 

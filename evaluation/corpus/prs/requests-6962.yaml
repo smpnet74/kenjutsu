@@ -1,0 +1,30 @@
+repo: "psf/requests"
+pr_number: 6962
+head_sha: "11e5adc9da430025b9a28527467b5fa5b4abb578"
+base_sha: "96ba401c1296ab1dda74a2365ef36d88f7d144ef"
+languages: ["python"]
+size: "small"
+tags: ["test", "security"]
+expected_findings:
+  - file_path: "tests/test_requests.py"
+    line_range: [705, 735]
+    category: "style"
+    severity: "low"
+    description: "The test uses manual tempfile creation and os.environ manipulation instead of pytest fixtures (tmp_path, monkeypatch). Cleanup in the finally block with os.unlink is fragile."
+    confidence: "verified"
+  - file_path: "tests/test_requests.py"
+    line_range: [719, 720]
+    category: "style"
+    severity: "low"
+    description: "Typo in comment: 'credentails' should be 'credentials'."
+    confidence: "verified"
+  - file_path: "tests/test_requests.py"
+    line_range: [708, 710]
+    category: "logic"
+    severity: "medium"
+    description: "The URL construction 'http://example.com:@{url}' crafts a URL where example.com appears as the username in the netloc. The test verifies that example.com credentials from netrc are NOT used for the actual target host."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "tests/test_requests.py"
+    description: "The test appears to be testing the same thing as PR #6963"
+    why_fp: "This PR adds the integration test. PR #6963 adds a unit test and the actual fix. They are complementary."

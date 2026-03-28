@@ -1,0 +1,18 @@
+repo: "psf/requests"
+pr_number: 6629
+head_sha: "3ff3ff21dd45957c9e143cd500291959bb15f690"
+base_sha: "7a13c041dbef42f9f3feb14110f02626f6892e9a"
+languages: ["python"]
+size: "small"
+tags: ["bugfix"]
+expected_findings:
+  - file_path: "src/requests/exceptions.py"
+    line_range: [41, 52]
+    category: "bug"
+    severity: "medium"
+    description: "The __reduce__ method fixes pickle deserialization of JSONDecodeError by delegating to CompatJSONDecodeError.__reduce__ because the MRO would otherwise call IOError.__reduce__ which doesn't provide the required 3 arguments (msg, doc, pos) that JSONDecodeError.__init__ expects."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "src/requests/exceptions.py"
+    description: "The __reduce__ override only delegates to one parent class, potentially losing state from InvalidJSONError/RequestException"
+    why_fp: "JSONDecodeError's __reduce__ captures the essential state (msg/doc/pos). RequestException parent adds request/response attributes not typically set on JSONDecodeError instances."

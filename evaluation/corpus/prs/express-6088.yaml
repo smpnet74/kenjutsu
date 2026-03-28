@@ -1,0 +1,18 @@
+repo: "expressjs/express"
+pr_number: 6088
+head_sha: "e41fb1403f830bb349262b2135a8426e333ed67a"
+base_sha: "b5aae87594502d543e8ac393847a6f091e9b8321"
+languages: ["javascript"]
+size: "small"
+tags: ["bugfix", "api-enhancement"]
+expected_findings:
+  - file_path: "lib/request.js"
+    line_range: [168, 172]
+    category: "style"
+    severity: "low"
+    description: "The function signature modernized from function() to function(...charsets) with rest params, but actual behavior is unchanged. The real value is improved JSDoc. Reviewer should note there is no functional change despite the apparent refactor."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "lib/request.js"
+    description: "Switching from var/function() to const/rest params looks like a style-only change"
+    why_fp: "It is functionally equivalent; the PR's value is the enhanced documentation."

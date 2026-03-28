@@ -1,0 +1,24 @@
+repo: "vercel/next.js"
+pr_number: 91840
+head_sha: "3eb441dd041d5c7881cc2cd70a5b0d567fb9816f"
+base_sha: "b5cb015c5f94088cf0211613051fb696b67cddda"
+languages: ["typescript"]
+size: "medium"
+tags: ["feature", "cli", "api-change"]
+expected_findings:
+  - file_path: "packages/create-next-app/index.ts"
+    line_range: [328, 331]
+    category: "logic"
+    severity: "high"
+    description: "When any --flag is provided, skipPrompt and useRecommendedDefaults are set to true. This is a behavioral breaking change: previously --ts alone would prompt for remaining options; now it silently applies defaults."
+    confidence: "verified"
+  - file_path: "packages/create-next-app/index.ts"
+    line_range: [653, 700]
+    category: "style"
+    severity: "low"
+    description: "The 'Using defaults for unprovided options' output uses process.argv.some() to check if a flag was explicitly provided. This may produce false positives if unrelated flags share prefix names."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "test/integration/create-next-app/prompts.test.ts"
+    description: "Tests removed interactive stdin.write() calls"
+    why_fp: "Correct: the tests now validate the new non-interactive behavior where defaults are auto-applied."

@@ -1,0 +1,24 @@
+repo: "encode/httpx"
+pr_number: 2911
+head_sha: "51c579ab242056940741f3e79160e103e6905354"
+base_sha: "5f2d62096a99ea8b111236557fd2c788c85908d2"
+languages: ["python"]
+size: "small"
+tags: ["refactor", "cleanup"]
+expected_findings:
+  - file_path: "httpx/_models.py"
+    line_range: [761, 761]
+    category: "logic"
+    severity: "high"
+    description: "Replacing 'jsonlib.loads(self.text)' with 'jsonlib.loads(self.content)' changes from charset_encoding-based text decoding to passing raw bytes to json.loads. If a server sends JSON with a Content-Type charset that differs from what json.loads auto-detects, behavior changes."
+    confidence: "verified"
+  - file_path: "httpx/_utils.py"
+    line_range: [91, 126]
+    category: "logic"
+    severity: "medium"
+    description: "The entire guess_json_utf function is removed. Python's json.loads handles UTF-8, UTF-16, and UTF-32 with BOM natively, but the null-byte heuristic for BOM-less UTF-16/32 is lost."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "tests/test_utils.py"
+    description: "Tests changed from testing guess_json_utf directly to testing response.json() end-to-end"
+    why_fp: "The internal function is removed, so tests now verify the same behavior through the public API. This is better test design."

@@ -1,0 +1,39 @@
+repo: "fastapi/fastapi"
+pr_number: 11191
+head_sha: "2c6fae21c9ddb01e13aa29d06a27f6645fdbd062"
+base_sha: "6336604906d50e0aca978d15ef82236bac23fb15"
+languages: ["python"]
+size: "large"
+tags: ["bugfix", "refactor"]
+expected_findings:
+  - file_path: "fastapi/routing.py"
+    line_range: [274, 303]
+    category: "logic"
+    severity: "critical"
+    description: "The endpoint function execution and response serialization are now inside the async_exit_stack context manager. If the endpoint raises an exception, it will be thrown into any yield-dependencies during stack unwinding. Previously, exception_to_reraise was stored and re-raised after the stack exited. Dependencies with yield that catch exceptions but don't re-raise will now silently swallow the error, leading to a new FastAPIError instead of a 500. This is a breaking change for users who relied on the old forwarding behavior."
+    confidence: "verified"
+  - file_path: "fastapi/routing.py"
+    line_range: [219, 220]
+    category: "logic"
+    severity: "medium"
+    description: "The fastapi_astack scope key is removed. Any middleware or third-party code that accessed request.scope['fastapi_astack'] will break. The new file_stack is not exposed in the scope at all."
+    confidence: "verified"
+  - file_path: "fastapi/routing.py"
+    line_range: [325, 326]
+    category: "logic"
+    severity: "medium"
+    description: "file_stack (for form body cleanup) is now a separate AsyncExitStack from async_exit_stack (for dependencies). If an exception occurs during dependency resolution, the form body's close callback on file_stack will still fire correctly since file_stack is the outer context. Reviewer should verify the nesting order is correct."
+    confidence: "verified"
+  - file_path: "tests/test_dependency_contextmanager.py"
+    line_range: [68, 69]
+    category: "logic"
+    severity: "high"
+    description: "Adding bare 'raise' to existing except blocks in test fixtures changes test behavior. These tests previously verified that exceptions were auto-forwarded; now they must explicitly re-raise. If any other test depends on the old swallow-and-forward behavior, it will break."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "fastapi/routing.py"
+    description: "Removing exception_to_reraise variable looks like exceptions will be lost"
+    why_fp: "Exceptions now propagate naturally through Python's context manager protocol. The old pattern stored exceptions to re-raise them after the exit stack closed, which caused memory leaks for unhandled internal server errors."
+  - file_path: "fastapi/routing.py"
+    description: "The 'if response is None' check with FastAPIError seems like it could mask real errors"
+    why_fp: "This is intentional: it provides a clear diagnostic message when a dependency with yield swallows an exception via bare except. Previously this scenario caused unbounded memory growth."

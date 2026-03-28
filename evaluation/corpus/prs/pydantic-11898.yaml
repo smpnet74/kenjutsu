@@ -1,0 +1,36 @@
+repo: "pydantic/pydantic"
+pr_number: 11898
+head_sha: "3ce521803303fcc7626134621bb374e0e6563ae1"
+base_sha: "9d6b2bfd74c8f42cac5a17c8031ff08d50bf5579"
+languages: ["python"]
+size: "large"
+tags: ["refactor", "api-change"]
+expected_findings:
+  - file_path: "pydantic/fields.py"
+    line_range: [400, 450]
+    category: "logic"
+    severity: "high"
+    description: "The HACK 2 block (FastAPI compatibility) preserves FieldInfo subclass instances only when there's no metadata AND the default is a FieldInfo subclass (not FieldInfo itself). Reviewer should verify this matches FastAPI's actual usage patterns."
+    confidence: "verified"
+  - file_path: "pydantic/fields.py"
+    line_range: [214, 215]
+    category: "logic"
+    severity: "high"
+    description: "_attributes_set now filters out keys that are in metadata_lookup. This changes what gets tracked as 'explicitly set', affecting merge_field_infos and any code that checks _attributes_set."
+    confidence: "verified"
+  - file_path: "pydantic/fields.py"
+    line_range: [534, 540]
+    category: "api-change"
+    severity: "medium"
+    description: "merge_field_infos is now deprecated. Third-party libraries calling this static method will get deprecation warnings."
+    confidence: "verified"
+  - file_path: "tests/test_annotated.py"
+    line_range: [505, 533]
+    category: "logic"
+    severity: "high"
+    description: "22 lines of tests were REMOVED that verified inner Annotated Field metadata doesn't override outer Field metadata. This suggests the merge order semantics changed."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "pydantic/fields.py"
+    description: "FieldInfo class marked @final but was previously subclassable"
+    why_fp: "The HACK 2 compatibility code explicitly handles FieldInfo subclasses (like FastAPI's Body). The @final is a signal to discourage NEW subclasses."

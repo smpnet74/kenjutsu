@@ -1,0 +1,18 @@
+repo: "expressjs/express"
+pr_number: 6992
+head_sha: "fe77a3dcfdabbf53b574eb95cfec88621babbf85"
+base_sha: "9a3f7ff4120d7920a2d13809ff5ae78648c8a3d6"
+languages: ["javascript"]
+size: "small"
+tags: ["chore", "cleanup", "deletion-heavy"]
+expected_findings:
+  - file_path: "benchmarks/middleware.js"
+    line_range: [1, 20]
+    category: "logic"
+    severity: "low"
+    description: "The entire benchmarks directory is removed. Reviewer should verify that no CI pipeline or documentation references these benchmarks."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "benchmarks/run"
+    description: "Shell script using wrk benchmark tool is deleted"
+    why_fp: "The benchmarks were outdated (using wrk, hardcoded port 3333) and required external wrk installation."

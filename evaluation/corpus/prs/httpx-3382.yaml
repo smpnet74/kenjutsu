@@ -1,0 +1,18 @@
+repo: "encode/httpx"
+pr_number: 3382
+head_sha: "967cc4ea12e206adb71ee00e29f8498922d63ed2"
+base_sha: "66225539796d819b5114ead2fd5e4d61865ab708"
+languages: ["python"]
+size: "small"
+tags: ["refactor", "cleanup"]
+expected_findings:
+  - file_path: "httpx/_models.py"
+    line_range: [57, 70]
+    category: "logic"
+    severity: "medium"
+    description: "The new _normalize_header_key no longer has a 'lower' parameter. Reviewer should verify no other callers relied on the lower parameter."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "httpx/_utils.py"
+    description: "Deleting normalize_header_key and normalize_header_value from _utils.py looks like removing public API"
+    why_fp: "These were internal utility functions (underscore-prefixed module). They are moved and renamed with underscore prefix in _models.py."

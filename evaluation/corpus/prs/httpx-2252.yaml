@@ -1,0 +1,33 @@
+repo: "encode/httpx"
+pr_number: 2252
+head_sha: "4081406dfef43b26623a9d9dd14022a71fb4d991"
+base_sha: "7c53d99da8351eea5ff71e1fa829e1d2e9727c0d"
+languages: ["python"]
+size: "large"
+tags: ["refactor", "dependency-removal"]
+expected_findings:
+  - file_path: "httpx/_urlparse.py"
+    line_range: [104, 107]
+    category: "logic"
+    severity: "medium"
+    description: "IPv4_STYLE_HOSTNAME regex uses '.' (any character) instead of '\\.' (literal dot). '1234x5678x9012x3456' would match the regex before being rejected by ipaddress.IPv4Address."
+    confidence: "verified"
+  - file_path: "httpx/_urlparse.py"
+    line_range: [395, 413]
+    category: "logic"
+    severity: "medium"
+    description: "The quote() function treats '%' as non-escaping if all existing '%' chars are valid percent-encoded sequences. A URL with a mix of valid '%xx' sequences and bare '%' could be handled incorrectly."
+    confidence: "verified"
+  - file_path: "httpx/_urlparse.py"
+    line_range: [338, 345]
+    category: "logic"
+    severity: "low"
+    description: "validate_path raises InvalidURL if path starts with ':' without a scheme, but does not validate other path characters per RFC 3986."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "httpx/_urls.py"
+    description: "Removal of large copy_with method looks like lost functionality"
+    why_fp: "The functionality moved into urlparse module's ParseResult.copy_with and URL constructor kwargs handling."
+  - file_path: "httpx/_urlparse.py"
+    description: "New 435-line file implementing URL parsing from scratch looks risky vs using stdlib"
+    why_fp: "stdlib urlparse doesn't differentiate empty vs absent querystrings, doesn't validate as strictly as RFC 3986, and doesn't handle IDNA normalization."

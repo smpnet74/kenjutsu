@@ -1,0 +1,30 @@
+repo: "microsoft/TypeScript"
+pr_number: 63142
+head_sha: "701246bfe30b97351d2c7e96a8c813f302fdd8f3"
+base_sha: "cdc205d5e6338d96b0fb54657af33d473d480a9c"
+languages: ["typescript"]
+size: "large"
+tags: ["bugfix", "api-change", "types"]
+expected_findings:
+  - file_path: "src/lib/esnext.temporal.d.ts"
+    line_range: [11, 11]
+    category: "logic"
+    severity: "medium"
+    description: "PlainMonthDayLike type alias changed from MonthDayLikeObject to DateLikeObject, broadening accepted input to include 'era' and 'eraYear' fields. Reviewer should verify this matches the Temporal spec."
+    confidence: "verified"
+  - file_path: "src/lib/esnext.temporal.d.ts"
+    line_range: [46, 46]
+    category: "logic"
+    severity: "medium"
+    description: "MonthDayLikeObject interface is removed entirely. Breaking change for any code referencing Temporal.MonthDayLikeObject directly."
+    confidence: "verified"
+  - file_path: "src/lib/esnext.temporal.d.ts"
+    line_range: [439, 439]
+    category: "logic"
+    severity: "medium"
+    description: "PlainMonthDay.with() parameter type broadened from MonthDayLikeObject to DateLikeObject."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "tests/baselines/reference/temporal.symbols"
+    description: "Large number of line number shifts in symbol baselines"
+    why_fp: "Purely mechanical shifts caused by the 2 new test lines added to temporal.ts; no actual symbol resolution changes."

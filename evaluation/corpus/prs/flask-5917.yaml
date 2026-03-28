@@ -1,0 +1,27 @@
+repo: "pallets/flask"
+pr_number: 5917
+head_sha: "e82db2ca3a22c9614c1987392c9cfaa8c6ce99ad"
+base_sha: "d3b78fd18a8d9e224cb9ef58a23cec9b1ffc9ce9"
+languages: ["python"]
+size: "medium"
+tags: ["bugfix", "tests"]
+expected_findings:
+  - file_path: "src/flask/sansio/app.py"
+    line_range: [635, 643]
+    category: "logic"
+    severity: "medium"
+    description: "The restructured logic changes indentation of the second 'if provide_automatic_options is None' into the first block. A reviewer should verify that when provide_automatic_options is explicitly passed as True by the caller, OPTIONS is now correctly added to required_methods."
+    confidence: "verified"
+  - file_path: "tests/test_cli.py"
+    line_range: [486, 492]
+    category: "logic"
+    severity: "low"
+    description: "Test now filters out '_automatic_options' endpoint from match_order. This implies the fix introduces a new internal route endpoint. Reviewer should verify this is expected behavior and not a leaky abstraction."
+    confidence: "verified"
+false_positive_patterns:
+  - file_path: "tests/test_basic.py"
+    description: "Large test rewrite splits one monolithic test into multiple focused tests, looks like significant deletion"
+    why_fp: "The old tests were testing the wrong invariants. The new tests properly test the enable/disable semantics."
+  - file_path: "tests/test_cli.py"
+    description: "Removing 'HEAD' and 'OPTIONS' from default routes output looks like a regression"
+    why_fp: "HEAD and OPTIONS are now hidden by default in routes output (only shown with --all-methods flag), a deliberate UX improvement."
