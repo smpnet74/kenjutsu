@@ -1,5 +1,12 @@
-"""Kenjutsu database package — SQLAlchemy models and engine helpers."""
+"""Kenjutsu database layer — ORM models and session management."""
 
-from kenjutsu.db.models import Base, Installation, WebhookEvent, metadata
+from kenjutsu.db.models import Base, Finding, Installation, Repo, Review, ReviewStatus
 
-__all__ = ["Base", "Installation", "WebhookEvent", "metadata"]
+__all__ = [
+    "Base",
+    "Finding",
+    "Installation",
+    "Repo",
+    "Review",
+    "ReviewStatus",
+]
