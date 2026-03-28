@@ -48,12 +48,14 @@ class Installation(Base):
     id: Mapped[UUID] = mapped_column(
         sa.Uuid(as_uuid=True), primary_key=True, server_default=sa.text("gen_random_uuid()")
     )
-    github_id: Mapped[int] = mapped_column(sa.BigInteger, nullable=False, unique=True)
-    account_name: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    github_installation_id: Mapped[int] = mapped_column(sa.BigInteger, nullable=False, unique=True)
+    account_login: Mapped[str] = mapped_column(sa.Text, nullable=False)
     account_type: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    plan: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    settings_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, server_default=sa.text("'{}'"))
+    suspended: Mapped[bool] = mapped_column(sa.Boolean, nullable=False, server_default=sa.text("false"))
     created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")
     )
 
