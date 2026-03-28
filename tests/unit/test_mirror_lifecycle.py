@@ -64,6 +64,21 @@ class TestMirrorPath:
         config = MirrorConfig(storage_path=tmp_path)
         assert mirror_path(config, "123456") == tmp_path / "123456"
 
+    def test_rejects_path_traversal(self, tmp_path: Path) -> None:
+        config = MirrorConfig(storage_path=tmp_path)
+        with pytest.raises(ValueError, match="Invalid repo_id"):
+            mirror_path(config, "../escape")
+
+    def test_rejects_absolute_path(self, tmp_path: Path) -> None:
+        config = MirrorConfig(storage_path=tmp_path)
+        with pytest.raises(ValueError, match="Invalid repo_id"):
+            mirror_path(config, "/etc/passwd")
+
+    def test_rejects_nested_traversal(self, tmp_path: Path) -> None:
+        config = MirrorConfig(storage_path=tmp_path)
+        with pytest.raises(ValueError, match="Invalid repo_id"):
+            mirror_path(config, "subdir/../../escape")
+
 
 # ─── clone_mirror ─────────────────────────────────────────────────────────────
 
