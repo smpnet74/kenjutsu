@@ -4,24 +4,33 @@ Plain async functions — zero framework imports. Each function takes
 typed input and returns typed output. The orchestration layer (steps.py)
 wraps these with DBOS durability; business logic never touches DBOS.
 
-All implementations are stubs for Phase 1 (DEM-159). Real logic
-is added in DEM-160 (Review Workflow Pipeline).
+All implementations are stubs for Phase 1 (DEM-159/DEM-160). Real logic
+is added in subsequent issues per the implementation plan.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from kenjutsu.pipeline.types import PrMetadata, ReviewRequest, ReviewResult, StructuralContext
+from kenjutsu.pipeline.types import PrMetadata, ReviewRequest, ReviewResult, ReviewStatus, StructuralContext
 
 if TYPE_CHECKING:
     from kenjutsu.models.findings import Finding
 
 
+async def update_review_status(review_id: str, status: ReviewStatus) -> None:
+    """Persist a status transition for the given review record.
+
+    Stub: no-op. DEM-141 implements the PostgreSQL write via Alembic schema.
+    The orchestration layer calls this at every step boundary so the review
+    record reflects the current pipeline position at all times.
+    """
+
+
 async def sha_guard(pr: PrMetadata) -> bool:
     """Return True if the PR head SHA is still current.
 
-    Stub: always returns True. DEM-160 implements the GitHub API check.
+    Stub: always returns True. DEM-1.6a implements the GitHub API check.
     """
     return True
 

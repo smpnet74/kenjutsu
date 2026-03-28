@@ -7,7 +7,26 @@ the pipeline's data flow explicit and testable without any framework.
 
 from __future__ import annotations
 
+from enum import StrEnum
+
 from pydantic import BaseModel
+
+
+class ReviewStatus(StrEnum):
+    """Status values for a review record, updated at each pipeline step."""
+
+    QUEUED = "queued"
+    SHA_CHECKING = "sha_checking"
+    PROCESSING_DIFF = "processing_diff"
+    EXTRACTING_CONTEXT = "extracting_context"
+    RUNNING_DETERMINISTIC = "running_deterministic"
+    RUNNING_LLM = "running_llm"
+    SCORING_EVIDENCE = "scoring_evidence"
+    PUBLISHING = "publishing"
+    COMPLETE = "complete"
+    FAILED = "failed"
+    SUPERSEDED = "superseded"
+    ABORTED = "aborted"
 
 
 class PrMetadata(BaseModel):
