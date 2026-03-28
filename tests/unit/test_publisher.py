@@ -18,6 +18,8 @@ from kenjutsu.pipeline.publisher import _finding_comment_body, publish_review
 # Helpers
 # ---------------------------------------------------------------------------
 
+INSTALLATION_ID = uuid.uuid4()
+
 
 def _make_review(
     review_id: uuid.UUID | None = None,
@@ -77,6 +79,27 @@ def _make_response(status_code: int = 200, json_data: dict | None = None) -> Mag
     return resp
 
 
+def _scalar_result(obj: object) -> MagicMock:
+    """Wrap an object as a scalar execute result."""
+    r = MagicMock()
+    r.scalar_one_or_none.return_value = obj
+    return r
+
+
+def _scalars_result(items: list) -> MagicMock:
+    """Wrap a list as a scalars execute result."""
+    scalars_mock = MagicMock()
+    scalars_mock.all.return_value = items
+    r = MagicMock()
+    r.scalars.return_value = scalars_mock
+    return r
+
+
+def _sha_ok_response(head_sha: str = "abc123") -> MagicMock:
+    """GitHub GET /pulls/{pr} response with matching SHA."""
+    return _make_response(200, {"head": {"sha": head_sha}})
+
+
 # ---------------------------------------------------------------------------
 # Tests: _finding_comment_body
 # ---------------------------------------------------------------------------
@@ -116,6 +139,31 @@ class TestFindingCommentBody:
         body = _finding_comment_body(finding)
         assert "🔴" in body
 
+    def test_redact_and_publish_hides_description(self) -> None:
+        finding = _make_finding(publishability="redact-and-publish")
+        body = _finding_comment_body(finding)
+        assert "A test finding" not in body
+        assert "[REDACTED]" in body
+
+    def test_redact_and_publish_hides_suggestion(self) -> None:
+        finding = _make_finding(publishability="redact-and-publish")
+        finding.suggestion = "A sensitive suggestion"
+        body = _finding_comment_body(finding)
+        assert "A sensitive suggestion" not in body
+        assert "Suggestion" not in body
+
+    def test_redact_and_publish_hides_fingerprint(self) -> None:
+        finding = _make_finding(publishability="redact-and-publish")
+        body = _finding_comment_body(finding)
+        assert "deadbeef12345678" not in body
+        assert "[REDACTED]" in body
+
+    def test_redact_and_publish_keeps_severity_and_category(self) -> None:
+        finding = _make_finding(publishability="redact-and-publish")
+        body = _finding_comment_body(finding)
+        assert "WARNING" in body
+        assert "bug" in body
+
 
 # ---------------------------------------------------------------------------
 # Tests: publish_review — first publish (no stored IDs)
@@ -152,18 +200,18 @@ class TestPublishReviewFirstPublish:
         repo: MagicMock,
         finding: MagicMock,
         client_mock: MagicMock,
+        sha: str = "abc123",
     ) -> None:
-        session.get = AsyncMock(side_effect=[review, repo])
-        scalars_mock = MagicMock()
-        scalars_mock.all.return_value = [finding]
-        execute_result = MagicMock()
-        execute_result.scalars.return_value = scalars_mock
-        session.execute = AsyncMock(return_value=execute_result)
+        session.execute = AsyncMock(side_effect=[
+            _scalar_result(review),        # Review join query
+            _scalar_result(repo),          # Repo query
+            _scalars_result([finding]),    # Finding query
+        ])
 
         with patch("kenjutsu.pipeline.publisher.httpx.AsyncClient") as mock_client_cls:
             mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=client_mock)
             mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-            await publish_review(session, review.id, "gh_token_test")
+            await publish_review(session, review.id, INSTALLATION_ID, "gh_token_test")
 
     @pytest.mark.asyncio
     async def test_creates_review_on_first_publish(
@@ -175,6 +223,7 @@ class TestPublishReviewFirstPublish:
         create_review_resp = _make_response(200, {"id": 9001})
         create_comment_resp = _make_response(200, {"id": 1234})
 
+        client.get = AsyncMock(return_value=_sha_ok_response())
         client.post = AsyncMock(side_effect=[create_review_resp, create_comment_resp])
         client.put = AsyncMock()
         client.patch = AsyncMock()
@@ -191,6 +240,7 @@ class TestPublishReviewFirstPublish:
         session = AsyncMock()
         client = MagicMock()
 
+        client.get = AsyncMock(return_value=_sha_ok_response())
         client.post = AsyncMock(
             side_effect=[
                 _make_response(200, {"id": 9001}),
@@ -209,6 +259,7 @@ class TestPublishReviewFirstPublish:
         session = AsyncMock()
         client = MagicMock()
 
+        client.get = AsyncMock(return_value=_sha_ok_response())
         client.post = AsyncMock(
             side_effect=[
                 _make_response(200, {"id": 9001}),
@@ -228,6 +279,7 @@ class TestPublishReviewFirstPublish:
         session = AsyncMock()
         client = MagicMock()
 
+        client.get = AsyncMock(return_value=_sha_ok_response())
         client.post = AsyncMock(
             side_effect=[
                 _make_response(200, {"id": 9001}),
@@ -251,25 +303,71 @@ class TestPublishReviewFirstPublish:
         suppressed.review_id = review.id
 
         create_review_resp = _make_response(200, {"id": 9001})
+        client.get = AsyncMock(return_value=_sha_ok_response())
         client.post = AsyncMock(return_value=create_review_resp)
         client.put = AsyncMock()
         client.patch = AsyncMock()
 
-        session.get = AsyncMock(side_effect=[review, repo])
-        scalars_mock = MagicMock()
-        scalars_mock.all.return_value = [suppressed]
-        execute_result = MagicMock()
-        execute_result.scalars.return_value = scalars_mock
-        session.execute = AsyncMock(return_value=execute_result)
+        session.execute = AsyncMock(side_effect=[
+            _scalar_result(review),
+            _scalar_result(repo),
+            _scalars_result([suppressed]),
+        ])
 
         with patch("kenjutsu.pipeline.publisher.httpx.AsyncClient") as mock_client_cls:
             mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=client)
             mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-            await publish_review(session, review.id, "gh_token_test")
+            await publish_review(session, review.id, INSTALLATION_ID, "gh_token_test")
 
-        # Only the review POST, no comment POST
-        assert client.post.call_count == 1
+        # Only the SHA check GET, no review or comment POST
+        assert client.post.call_count == 0
         assert suppressed.published is False
+
+    @pytest.mark.asyncio
+    async def test_sha_mismatch_aborts_publish(self, review: MagicMock, repo: MagicMock, finding: MagicMock) -> None:
+        session = AsyncMock()
+        client = MagicMock()
+
+        # GitHub says PR head is now a different SHA
+        client.get = AsyncMock(return_value=_sha_ok_response(head_sha="deadbeef"))
+        client.post = AsyncMock()
+        client.put = AsyncMock()
+
+        session.execute = AsyncMock(side_effect=[
+            _scalar_result(review),
+            _scalar_result(repo),
+            _scalars_result([finding]),
+        ])
+
+        with patch("kenjutsu.pipeline.publisher.httpx.AsyncClient") as mock_client_cls:
+            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=client)
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+            with pytest.raises(ValueError, match="Head SHA mismatch"):
+                await publish_review(session, review.id, INSTALLATION_ID, "gh_token_test")
+
+        # No GitHub writes should have occurred
+        assert client.post.call_count == 0
+        assert client.put.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_flushes_after_review_create(self, review: MagicMock, repo: MagicMock, finding: MagicMock) -> None:
+        session = AsyncMock()
+        client = MagicMock()
+
+        client.get = AsyncMock(return_value=_sha_ok_response())
+        client.post = AsyncMock(
+            side_effect=[
+                _make_response(200, {"id": 9001}),
+                _make_response(200, {"id": 1234}),
+            ]
+        )
+        client.put = AsyncMock()
+        client.patch = AsyncMock()
+
+        await self._run(session, review, repo, finding, client)
+
+        # flush called at least once (after review create, after each comment create)
+        assert session.flush.call_count >= 1
 
 
 # ---------------------------------------------------------------------------
@@ -289,16 +387,16 @@ class TestPublishReviewRetry:
         finding.review_id = review_id
 
         session = AsyncMock()
-        session.get = AsyncMock(side_effect=[review, repo])
-        scalars_mock = MagicMock()
-        scalars_mock.all.return_value = [finding]
-        execute_result = MagicMock()
-        execute_result.scalars.return_value = scalars_mock
-        session.execute = AsyncMock(return_value=execute_result)
+        session.execute = AsyncMock(side_effect=[
+            _scalar_result(review),
+            _scalar_result(repo),
+            _scalars_result([finding]),
+        ])
 
         client = MagicMock()
         update_review_resp = _make_response(200, {"id": 9001})
         update_comment_resp = _make_response(200, {"id": 5678})
+        client.get = AsyncMock(return_value=_sha_ok_response())
         client.put = AsyncMock(return_value=update_review_resp)
         client.patch = AsyncMock(return_value=update_comment_resp)
         client.post = AsyncMock()
@@ -306,7 +404,7 @@ class TestPublishReviewRetry:
         with patch("kenjutsu.pipeline.publisher.httpx.AsyncClient") as mock_client_cls:
             mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=client)
             mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-            await publish_review(session, review_id, "gh_token_test")
+            await publish_review(session, review_id, INSTALLATION_ID, "gh_token_test")
 
         # Should PUT (update) the review, not POST
         assert client.put.call_count == 1
@@ -337,14 +435,14 @@ class TestPublishReviewRetry:
         finding.review_id = review_id
 
         session = AsyncMock()
-        session.get = AsyncMock(side_effect=[review, repo])
-        scalars_mock = MagicMock()
-        scalars_mock.all.return_value = [finding]
-        execute_result = MagicMock()
-        execute_result.scalars.return_value = scalars_mock
-        session.execute = AsyncMock(return_value=execute_result)
+        session.execute = AsyncMock(side_effect=[
+            _scalar_result(review),
+            _scalar_result(repo),
+            _scalars_result([finding]),
+        ])
 
         client = MagicMock()
+        client.get = AsyncMock(return_value=_sha_ok_response())
         client.put = AsyncMock(return_value=_make_response(200, {"id": 9001}))
         client.patch = AsyncMock(return_value=_make_response(200, {"id": 5678}))
         client.post = AsyncMock()
@@ -352,7 +450,7 @@ class TestPublishReviewRetry:
         with patch("kenjutsu.pipeline.publisher.httpx.AsyncClient") as mock_client_cls:
             mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=client)
             mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-            await publish_review(session, review_id, "gh_token_test")
+            await publish_review(session, review_id, INSTALLATION_ID, "gh_token_test")
 
         assert client.post.call_count == 0
 
@@ -375,14 +473,14 @@ class TestPublishReviewRecovery:
         finding.review_id = review_id
 
         session = AsyncMock()
-        session.get = AsyncMock(side_effect=[review, repo])
-        scalars_mock = MagicMock()
-        scalars_mock.all.return_value = [finding]
-        execute_result = MagicMock()
-        execute_result.scalars.return_value = scalars_mock
-        session.execute = AsyncMock(return_value=execute_result)
+        session.execute = AsyncMock(side_effect=[
+            _scalar_result(review),
+            _scalar_result(repo),
+            _scalars_result([finding]),
+        ])
 
         client = MagicMock()
+        client.get = AsyncMock(return_value=_sha_ok_response())
         # PUT returns 404 (review deleted)
         not_found_resp = _make_response(404)
         not_found_resp.raise_for_status.return_value = None  # 404 handled gracefully
@@ -399,7 +497,7 @@ class TestPublishReviewRecovery:
         with patch("kenjutsu.pipeline.publisher.httpx.AsyncClient") as mock_client_cls:
             mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=client)
             mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-            await publish_review(session, review_id, "gh_token_test")
+            await publish_review(session, review_id, INSTALLATION_ID, "gh_token_test")
 
         # New review was created
         assert review.github_review_id == 9999
@@ -419,14 +517,14 @@ class TestPublishReviewRecovery:
         finding.review_id = review_id
 
         session = AsyncMock()
-        session.get = AsyncMock(side_effect=[review, repo])
-        scalars_mock = MagicMock()
-        scalars_mock.all.return_value = [finding]
-        execute_result = MagicMock()
-        execute_result.scalars.return_value = scalars_mock
-        session.execute = AsyncMock(return_value=execute_result)
+        session.execute = AsyncMock(side_effect=[
+            _scalar_result(review),
+            _scalar_result(repo),
+            _scalars_result([finding]),
+        ])
 
         client = MagicMock()
+        client.get = AsyncMock(return_value=_sha_ok_response())
         client.put = AsyncMock(return_value=_make_response(200, {"id": 9001}))
         # PATCH returns 404 (comment deleted)
         not_found_resp = _make_response(404)
@@ -438,7 +536,7 @@ class TestPublishReviewRecovery:
         with patch("kenjutsu.pipeline.publisher.httpx.AsyncClient") as mock_client_cls:
             mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=client)
             mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
-            await publish_review(session, review_id, "gh_token_test")
+            await publish_review(session, review_id, INSTALLATION_ID, "gh_token_test")
 
         # New comment created
         assert finding.github_comment_id == 2222
@@ -447,16 +545,19 @@ class TestPublishReviewRecovery:
     @pytest.mark.asyncio
     async def test_raises_value_error_for_missing_review(self) -> None:
         session = AsyncMock()
-        session.get = AsyncMock(return_value=None)
+        session.execute = AsyncMock(return_value=_scalar_result(None))
 
         with pytest.raises(ValueError, match="not found"):
-            await publish_review(session, uuid.uuid4(), "gh_token_test")
+            await publish_review(session, uuid.uuid4(), INSTALLATION_ID, "gh_token_test")
 
     @pytest.mark.asyncio
     async def test_raises_value_error_for_missing_repo(self) -> None:
         review = _make_review()
         session = AsyncMock()
-        session.get = AsyncMock(side_effect=[review, None])
+        session.execute = AsyncMock(side_effect=[
+            _scalar_result(review),
+            _scalar_result(None),
+        ])
 
         with pytest.raises(ValueError, match="not found"):
-            await publish_review(session, review.id, "gh_token_test")
+            await publish_review(session, review.id, INSTALLATION_ID, "gh_token_test")

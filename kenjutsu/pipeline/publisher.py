@@ -44,22 +44,32 @@ def _auth_headers(token: str) -> dict[str, str]:
 
 
 def _finding_comment_body(finding: Finding) -> str:
-    """Build the markdown comment body for a single finding."""
+    """Build the markdown comment body for a single finding.
+
+    REDACT_AND_PUBLISH findings have description, suggestion, and fingerprint
+    replaced with [REDACTED] to prevent leaking sensitive data into PR threads.
+    """
+    is_redacted = finding.publishability == Publishability.REDACT_AND_PUBLISH.value
+
     severity_icon = {
         "critical": "🔴",
         "warning": "🟡",
         "suggestion": "🔵",
     }.get(finding.severity, "⚪")
 
+    description = "[REDACTED]" if is_redacted else finding.description
+
     lines = [
-        f"{severity_icon} **{finding.severity.upper()}** [{finding.category}] — {finding.description}",
+        f"{severity_icon} **{finding.severity.upper()}** [{finding.category}] — {description}",
     ]
-    if finding.suggestion:
+    if not is_redacted and finding.suggestion:
         lines.append("")
         lines.append(f"**Suggestion:** {finding.suggestion}")
     lines.append("")
+
+    fingerprint = "[REDACTED]" if is_redacted else f"`{finding.fingerprint}`"
     lines.append(
-        f"*origin: {finding.origin} · confidence: {finding.confidence} · fingerprint: `{finding.fingerprint}`*"
+        f"*origin: {finding.origin} · confidence: {finding.confidence} · fingerprint: {fingerprint}*"
     )
     return "\n".join(lines)
 
@@ -178,6 +188,7 @@ async def _update_comment(
 async def publish_review(
     session: AsyncSession,
     review_id: UUID,
+    installation_id: UUID,
     github_token: str,
 ) -> None:
     """Publish or update a GitHub PR review idempotently.
@@ -194,21 +205,32 @@ async def publish_review(
         session: Async SQLAlchemy session. Caller is responsible for
             committing or rolling back.
         review_id: Primary key of the Review row to publish.
+        installation_id: Tenant identifier. All DB queries are scoped to
+            this installation to enforce tenant boundaries.
         github_token: GitHub personal access token or installation token
             with pull_requests write permission.
 
     Raises:
-        ValueError: review_id not found or repo not found.
+        ValueError: review_id not found, repo not found, or head SHA
+            mismatch (PR was force-pushed since analysis).
         httpx.HTTPStatusError: GitHub API returned a non-recoverable error.
     """
     # ------------------------------------------------------------------
-    # 1. Load review and its publishable findings
+    # 1. Load review and its publishable findings — scoped by installation_id
     # ------------------------------------------------------------------
-    review_row = await session.get(Review, review_id)
+    review_result = await session.execute(
+        select(Review)
+        .join(Repo, Review.repo_id == Repo.id)
+        .where(Review.id == review_id, Repo.installation_id == installation_id)
+    )
+    review_row = review_result.scalar_one_or_none()
     if review_row is None:
         raise ValueError(f"Review {review_id} not found")
 
-    repo_row = await session.get(Repo, review_row.repo_id)
+    repo_result = await session.execute(
+        select(Repo).where(Repo.id == review_row.repo_id, Repo.installation_id == installation_id)
+    )
+    repo_row = repo_result.scalar_one_or_none()
     if repo_row is None:
         raise ValueError(f"Repo {review_row.repo_id} not found")
 
@@ -226,7 +248,29 @@ async def publish_review(
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         # ------------------------------------------------------------------
-        # 2. Ensure the GitHub review exists
+        # 2. SHA guard — abort if the PR was force-pushed since analysis
+        # ------------------------------------------------------------------
+        pr_resp = await client.get(
+            f"{GITHUB_API_BASE}/repos/{owner}/{repo_name}/pulls/{pr_number}",
+            headers=_auth_headers(github_token),
+        )
+        pr_resp.raise_for_status()
+        current_sha: str = pr_resp.json()["head"]["sha"]
+        if current_sha != head_sha:
+            logger.warning(
+                "PR %s/%s #%d head SHA changed from %s to %s — aborting publish",
+                owner,
+                repo_name,
+                pr_number,
+                head_sha,
+                current_sha,
+            )
+            raise ValueError(
+                f"Head SHA mismatch for PR #{pr_number}: expected {head_sha}, got {current_sha}"
+            )
+
+        # ------------------------------------------------------------------
+        # 3. Ensure the GitHub review exists
         # ------------------------------------------------------------------
         github_review_id: int | None = review_row.github_review_id
 
@@ -234,6 +278,7 @@ async def publish_review(
             # First publish — create the review
             github_review_id = await _create_review(client, owner, repo_name, pr_number, head_sha, github_token)
             review_row.github_review_id = github_review_id
+            await session.flush()  # checkpoint before next network call
         else:
             # Retry — update the existing review; recreate if deleted
             updated = await _update_review(client, owner, repo_name, pr_number, github_review_id, github_token)
@@ -244,9 +289,10 @@ async def publish_review(
                 # All previous comment IDs are now stale — clear them so
                 # every finding gets a fresh comment below
                 comment_id_map = {}
+                await session.flush()  # checkpoint before next network call
 
         # ------------------------------------------------------------------
-        # 3. Create or update inline comments for each publishable finding
+        # 4. Create or update inline comments for each publishable finding
         # ------------------------------------------------------------------
         for finding in publishable_findings:
             finding_key = str(finding.id)
@@ -260,6 +306,8 @@ async def publish_review(
                 finding.github_comment_id = new_comment_id
                 finding.published = True
                 comment_id_map[finding_key] = new_comment_id
+                review_row.github_comment_ids = dict(comment_id_map)
+                await session.flush()  # checkpoint after each new comment ID
             else:
                 # Retry — update existing comment; recreate if deleted
                 updated = await _update_comment(client, owner, repo_name, existing_comment_id, finding, github_token)
@@ -269,10 +317,12 @@ async def publish_review(
                     )
                     finding.github_comment_id = new_comment_id
                     comment_id_map[finding_key] = new_comment_id
+                    review_row.github_comment_ids = dict(comment_id_map)
+                    await session.flush()  # checkpoint after recreated comment ID
                 finding.published = True
 
     # ------------------------------------------------------------------
-    # 4. Persist publishing state — caller commits the session
+    # 5. Persist final publishing state — caller commits the session
     # ------------------------------------------------------------------
     review_row.github_comment_ids = comment_id_map
 
