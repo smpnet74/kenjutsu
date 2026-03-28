@@ -1,327 +1,579 @@
-"""Unit tests for the PendingReviewPublisher.
+"""Unit tests for the idempotent GitHub review publisher.
 
-Covers:
-- Severity badge rendering
-- Suggestion block formatting
-- Redaction (REDACT_AND_PUBLISH does not leak evidence_sources)
-- Publishability filtering
-- Comment payload structure (single-line vs multi-line findings)
-- Severity-based ordering
-- Near-limit filtering (only critical findings when rate-limited)
+All GitHub API calls and DB session interactions are fully mocked so these
+tests run without a live database or network.
 """
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+import uuid
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
-from kenjutsu.models import Category, Confidence, Finding, Origin, Publishability, Severity
-from kenjutsu.publisher import SEVERITY_BADGES, PendingReviewPublisher, RateLimitExceededError
-
-
-def _finding(**overrides: object) -> Finding:
-    defaults: dict[str, object] = {
-        "file_path": "src/auth.py",
-        "line_start": 10,
-        "line_end": 10,
-        "origin": Origin.LLM,
-        "confidence": Confidence.HIGH,
-        "severity": Severity.WARNING,
-        "category": Category.BUG,
-        "publishability": Publishability.PUBLISH,
-        "description": "Potential null dereference",
-    }
-    defaults.update(overrides)
-    return Finding(**defaults)  # type: ignore[arg-type]
-
-
-def _publisher(rate_limit_remaining: int | None = None) -> tuple[PendingReviewPublisher, MagicMock]:
-    """Return a publisher wired to a mock httpx.Client and a canned success response."""
-    mock_client = MagicMock()
-    mock_response = MagicMock()
-    mock_response.json.return_value = {"id": 1, "state": "PENDING"}
-    mock_response.raise_for_status.return_value = None
-
-    if rate_limit_remaining is not None:
-        mock_response.headers = {"X-RateLimit-Remaining": str(rate_limit_remaining)}
-    else:
-        mock_response.headers = {}
-
-    mock_client.post.return_value = mock_response
-
-    pub = PendingReviewPublisher(
-        token="ghp_test",
-        owner="acme",
-        repo="kenjutsu",
-        pull_number=42,
-        client=mock_client,
-    )
-    return pub, mock_client
-
+from kenjutsu.pipeline.publisher import _finding_comment_body, publish_review
 
 # ---------------------------------------------------------------------------
-# Severity badges
+# Helpers
 # ---------------------------------------------------------------------------
 
-
-class TestSeverityBadges:
-    def test_critical_badge(self) -> None:
-        assert "🔴" in SEVERITY_BADGES[Severity.CRITICAL]
-        assert "critical" in SEVERITY_BADGES[Severity.CRITICAL]
-
-    def test_warning_badge(self) -> None:
-        assert "🟡" in SEVERITY_BADGES[Severity.WARNING]
-        assert "warning" in SEVERITY_BADGES[Severity.WARNING]
-
-    def test_suggestion_badge(self) -> None:
-        assert "💡" in SEVERITY_BADGES[Severity.SUGGESTION]
-        assert "suggestion" in SEVERITY_BADGES[Severity.SUGGESTION]
-
-    def test_all_severities_covered(self) -> None:
-        assert set(SEVERITY_BADGES.keys()) == set(Severity)
+INSTALLATION_ID = uuid.uuid4()
 
 
-# ---------------------------------------------------------------------------
-# Comment body formatting
-# ---------------------------------------------------------------------------
+def _make_review(
+    review_id: uuid.UUID | None = None,
+    repo_id: uuid.UUID | None = None,
+    github_review_id: int | None = None,
+    github_comment_ids: dict | None = None,
+) -> MagicMock:
+    review = MagicMock()
+    review.id = review_id or uuid.uuid4()
+    review.repo_id = repo_id or uuid.uuid4()
+    review.pr_number = 42
+    review.head_sha = "abc123"
+    review.github_review_id = github_review_id
+    review.github_comment_ids = github_comment_ids
+    return review
 
 
-class TestFormatCommentBody:
-    def setup_method(self) -> None:
-        self.pub, _ = _publisher()
+def _make_repo(full_name: str = "acme/myrepo") -> MagicMock:
+    repo = MagicMock()
+    repo.full_name = full_name
+    return repo
 
-    def test_critical_badge_in_body(self) -> None:
-        f = _finding(severity=Severity.CRITICAL)
-        body = self.pub.format_comment_body(f)
-        assert "🔴" in body
-        assert "critical" in body
 
-    def test_warning_badge_in_body(self) -> None:
-        f = _finding(severity=Severity.WARNING)
-        body = self.pub.format_comment_body(f)
-        assert "🟡" in body
-        assert "warning" in body
+def _make_finding(
+    finding_id: uuid.UUID | None = None,
+    publishability: str = "publish",
+    github_comment_id: int | None = None,
+) -> MagicMock:
+    f = MagicMock()
+    f.id = finding_id or uuid.uuid4()
+    f.publishability = publishability
+    f.github_comment_id = github_comment_id
+    f.file_path = "src/auth.py"
+    f.line_end = 10
+    f.line_start = 10
+    f.severity = "warning"
+    f.category = "bug"
+    f.description = "A test finding"
+    f.suggestion = None
+    f.origin = "llm"
+    f.confidence = "high"
+    f.fingerprint = "deadbeef12345678"
+    f.published = False
+    return f
 
-    def test_suggestion_badge_in_body(self) -> None:
-        f = _finding(severity=Severity.SUGGESTION)
-        body = self.pub.format_comment_body(f)
-        assert "💡" in body
-        assert "suggestion" in body
 
-    def test_description_included(self) -> None:
-        f = _finding(description="Use parameterised queries to avoid SQL injection")
-        body = self.pub.format_comment_body(f)
-        assert "Use parameterised queries" in body
-
-    def test_no_suggestion_block_when_none(self) -> None:
-        f = _finding(suggestion=None)
-        body = self.pub.format_comment_body(f)
-        assert "```suggestion" not in body
-
-    def test_suggestion_block_rendered(self) -> None:
-        f = _finding(suggestion="return user.get('email', '')")
-        body = self.pub.format_comment_body(f)
-        assert "```suggestion" in body
-        assert "return user.get('email', '')" in body
-        assert body.strip().endswith("```")
-
-    def test_redact_and_publish_omits_evidence_sources(self) -> None:
-        """evidence_sources must not appear in the published comment body."""
-        f = _finding(
-            publishability=Publishability.REDACT_AND_PUBLISH,
-            description="Hardcoded credential detected",
-            evidence_sources=["ast_grep:hardcoded_secret", "graph:taint_path"],
+def _make_response(status_code: int = 200, json_data: dict | None = None) -> MagicMock:
+    resp = MagicMock(spec=httpx.Response)
+    resp.status_code = status_code
+    resp.json.return_value = json_data or {}
+    if status_code >= 400:
+        resp.raise_for_status.side_effect = httpx.HTTPStatusError(
+            f"HTTP {status_code}", request=MagicMock(), response=resp
         )
-        body = self.pub.format_comment_body(f)
-        assert "ast_grep" not in body
-        assert "graph:taint_path" not in body
-        assert "Hardcoded credential detected" in body
-
-    def test_publish_includes_description(self) -> None:
-        f = _finding(publishability=Publishability.PUBLISH, description="Null check missing")
-        body = self.pub.format_comment_body(f)
-        assert "Null check missing" in body
+    else:
+        resp.raise_for_status.return_value = None
+    return resp
 
 
-# ---------------------------------------------------------------------------
-# Publishability filtering
-# ---------------------------------------------------------------------------
+def _scalar_result(obj: object) -> MagicMock:
+    """Wrap an object as a scalar execute result."""
+    r = MagicMock()
+    r.scalar_one_or_none.return_value = obj
+    return r
 
 
-class TestPublishabilityFiltering:
-    def setup_method(self) -> None:
-        self.pub, self.mock_client = _publisher(rate_limit_remaining=100)
+def _scalars_result(items: list) -> MagicMock:
+    """Wrap a list as a scalars execute result."""
+    scalars_mock = MagicMock()
+    scalars_mock.all.return_value = items
+    r = MagicMock()
+    r.scalars.return_value = scalars_mock
+    return r
 
-    def _call_publish(self, *findings: Finding) -> None:
-        self.pub.publish(list(findings))
 
-    def _captured_comments(self) -> list[dict]:  # type: ignore[type-arg]
-        payload = self.mock_client.post.call_args[1]["json"]
-        return payload["comments"]  # type: ignore[no-any-return]
-
-    def test_publish_finding_included(self) -> None:
-        f = _finding(publishability=Publishability.PUBLISH)
-        self._call_publish(f)
-        assert len(self._captured_comments()) == 1
-
-    def test_redact_and_publish_included(self) -> None:
-        f = _finding(publishability=Publishability.REDACT_AND_PUBLISH)
-        self._call_publish(f)
-        assert len(self._captured_comments()) == 1
-
-    def test_suppress_excluded(self) -> None:
-        f = _finding(publishability=Publishability.SUPPRESS)
-        self._call_publish(f)
-        assert len(self._captured_comments()) == 0
-
-    def test_audit_only_excluded(self) -> None:
-        f = _finding(publishability=Publishability.AUDIT_ONLY)
-        self._call_publish(f)
-        assert len(self._captured_comments()) == 0
-
-    def test_mixed_findings_filtered(self) -> None:
-        findings = [
-            _finding(publishability=Publishability.PUBLISH, line_start=1, line_end=1),
-            _finding(publishability=Publishability.SUPPRESS, line_start=2, line_end=2),
-            _finding(publishability=Publishability.AUDIT_ONLY, line_start=3, line_end=3),
-            _finding(publishability=Publishability.REDACT_AND_PUBLISH, line_start=4, line_end=4),
-        ]
-        self._call_publish(*findings)
-        assert len(self._captured_comments()) == 2
+def _sha_ok_response(head_sha: str = "abc123") -> MagicMock:
+    """GitHub GET /pulls/{pr} response with matching SHA."""
+    return _make_response(200, {"head": {"sha": head_sha}})
 
 
 # ---------------------------------------------------------------------------
-# Comment payload structure
+# Tests: _finding_comment_body
 # ---------------------------------------------------------------------------
 
 
-class TestCommentPayload:
-    def setup_method(self) -> None:
-        self.pub, self.mock_client = _publisher(rate_limit_remaining=100)
+class TestFindingCommentBody:
+    def test_includes_description(self) -> None:
+        finding = _make_finding()
+        body = _finding_comment_body(finding)
+        assert "A test finding" in body
 
-    def _captured_comments(self) -> list[dict]:  # type: ignore[type-arg]
-        payload = self.mock_client.post.call_args[1]["json"]
-        return payload["comments"]  # type: ignore[no-any-return]
+    def test_includes_severity(self) -> None:
+        finding = _make_finding()
+        body = _finding_comment_body(finding)
+        assert "WARNING" in body
 
-    def test_single_line_uses_line_only(self) -> None:
-        f = _finding(line_start=42, line_end=42)
-        self.pub.publish([f])
-        comment = self._captured_comments()[0]
-        assert comment["line"] == 42
-        assert "start_line" not in comment
+    def test_includes_suggestion_when_present(self) -> None:
+        finding = _make_finding()
+        finding.suggestion = "Use a safer API"
+        body = _finding_comment_body(finding)
+        assert "Use a safer API" in body
 
-    def test_multi_line_includes_start_line(self) -> None:
-        f = _finding(line_start=10, line_end=20)
-        self.pub.publish([f])
-        comment = self._captured_comments()[0]
-        assert comment["start_line"] == 10
-        assert comment["line"] == 20
+    def test_no_suggestion_section_when_absent(self) -> None:
+        finding = _make_finding()
+        finding.suggestion = None
+        body = _finding_comment_body(finding)
+        assert "Suggestion" not in body
 
-    def test_file_path_in_comment(self) -> None:
-        f = _finding(file_path="kenjutsu/publisher/pending_review.py")
-        self.pub.publish([f])
-        comment = self._captured_comments()[0]
-        assert comment["path"] == "kenjutsu/publisher/pending_review.py"
+    def test_includes_fingerprint(self) -> None:
+        finding = _make_finding()
+        body = _finding_comment_body(finding)
+        assert "deadbeef12345678" in body
 
-    def test_side_is_right(self) -> None:
-        f = _finding()
-        self.pub.publish([f])
-        comment = self._captured_comments()[0]
-        assert comment["side"] == "RIGHT"
+    def test_critical_icon(self) -> None:
+        finding = _make_finding()
+        finding.severity = "critical"
+        body = _finding_comment_body(finding)
+        assert "🔴" in body
 
+    def test_redact_and_publish_hides_description(self) -> None:
+        finding = _make_finding(publishability="redact-and-publish")
+        body = _finding_comment_body(finding)
+        assert "A test finding" not in body
+        assert "[REDACTED]" in body
 
-# ---------------------------------------------------------------------------
-# Severity ordering
-# ---------------------------------------------------------------------------
+    def test_redact_and_publish_hides_suggestion(self) -> None:
+        finding = _make_finding(publishability="redact-and-publish")
+        finding.suggestion = "A sensitive suggestion"
+        body = _finding_comment_body(finding)
+        assert "A sensitive suggestion" not in body
+        assert "Suggestion" not in body
 
+    def test_redact_and_publish_hides_fingerprint(self) -> None:
+        finding = _make_finding(publishability="redact-and-publish")
+        body = _finding_comment_body(finding)
+        assert "deadbeef12345678" not in body
+        assert "[REDACTED]" in body
 
-class TestSeverityOrdering:
-    def setup_method(self) -> None:
-        self.pub, self.mock_client = _publisher(rate_limit_remaining=100)
-
-    def _captured_comments(self) -> list[dict]:  # type: ignore[type-arg]
-        payload = self.mock_client.post.call_args[1]["json"]
-        return payload["comments"]  # type: ignore[no-any-return]
-
-    def test_critical_before_warning_before_suggestion(self) -> None:
-        findings = [
-            _finding(severity=Severity.SUGGESTION, line_start=3, line_end=3),
-            _finding(severity=Severity.CRITICAL, line_start=1, line_end=1),
-            _finding(severity=Severity.WARNING, line_start=2, line_end=2),
-        ]
-        self.pub.publish(findings)
-        comments = self._captured_comments()
-        bodies = [c["body"] for c in comments]
-        assert "🔴" in bodies[0]
-        assert "🟡" in bodies[1]
-        assert "💡" in bodies[2]
+    def test_redact_and_publish_keeps_severity_and_category(self) -> None:
+        finding = _make_finding(publishability="redact-and-publish")
+        body = _finding_comment_body(finding)
+        assert "WARNING" in body
+        assert "bug" in body
 
 
 # ---------------------------------------------------------------------------
-# Rate limit behaviour
+# Tests: publish_review — first publish (no stored IDs)
 # ---------------------------------------------------------------------------
 
 
-class TestRateLimitBehaviour:
-    def _publisher_with_limit(self, remaining: int) -> tuple[PendingReviewPublisher, MagicMock]:
-        return _publisher(rate_limit_remaining=remaining)
+class TestPublishReviewFirstPublish:
+    @pytest.fixture
+    def review_id(self) -> uuid.UUID:
+        return uuid.uuid4()
 
-    def _captured_comments(self, mock_client: MagicMock) -> list[dict]:  # type: ignore[type-arg]
-        payload = mock_client.post.call_args[1]["json"]
-        return payload["comments"]  # type: ignore[no-any-return]
+    @pytest.fixture
+    def finding_id(self) -> uuid.UUID:
+        return uuid.uuid4()
 
-    def test_healthy_limit_publishes_all(self) -> None:
-        pub, mc = self._publisher_with_limit(100)
-        findings = [
-            _finding(severity=Severity.CRITICAL, line_start=1, line_end=1),
-            _finding(severity=Severity.WARNING, line_start=2, line_end=2),
-            _finding(severity=Severity.SUGGESTION, line_start=3, line_end=3),
-        ]
-        pub.publish(findings)
-        assert len(self._captured_comments(mc)) == 3
+    @pytest.fixture
+    def review(self, review_id: uuid.UUID) -> MagicMock:
+        return _make_review(review_id=review_id)
 
-    def test_near_limit_only_critical_published(self) -> None:
-        pub, mc = self._publisher_with_limit(100)
-        # Simulate a first call that returns low remaining
-        first_response = MagicMock()
-        first_response.json.return_value = {"id": 99}
-        first_response.raise_for_status.return_value = None
-        first_response.headers = {"X-RateLimit-Remaining": "5"}  # below floor
-        mc.post.return_value = first_response
+    @pytest.fixture
+    def repo(self) -> MagicMock:
+        return _make_repo()
 
-        with pytest.raises(RateLimitExceededError):
-            pub.publish([_finding(severity=Severity.WARNING)])
+    @pytest.fixture
+    def finding(self, finding_id: uuid.UUID, review_id: uuid.UUID) -> MagicMock:
+        f = _make_finding(finding_id=finding_id)
+        f.review_id = review_id
+        return f
 
-        # Second publish: rate_limit_remaining is now 5, only critical included
-        second_response = MagicMock()
-        second_response.json.return_value = {"id": 100}
-        second_response.raise_for_status.return_value = None
-        second_response.headers = {"X-RateLimit-Remaining": "4"}
-        mc.post.return_value = second_response
+    async def _run(
+        self,
+        session: AsyncMock,
+        review: MagicMock,
+        repo: MagicMock,
+        finding: MagicMock,
+        client_mock: MagicMock,
+        sha: str = "abc123",
+    ) -> None:
+        session.execute = AsyncMock(
+            side_effect=[
+                _scalar_result(review),  # Review join query
+                _scalar_result(repo),  # Repo query
+                _scalars_result([finding]),  # Finding query
+            ]
+        )
 
-        with pytest.raises(RateLimitExceededError):
-            pub.publish(
-                [
-                    _finding(severity=Severity.CRITICAL, line_start=1, line_end=1),
-                    _finding(severity=Severity.WARNING, line_start=2, line_end=2),
-                ]
-            )
+        with patch("kenjutsu.pipeline.publisher.httpx.AsyncClient") as mock_client_cls:
+            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=client_mock)
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+            await publish_review(session, review.id, INSTALLATION_ID, "gh_token_test")
 
-        # Only the critical finding should have been sent
-        assert len(self._captured_comments(mc)) == 1
-        assert "🔴" in self._captured_comments(mc)[0]["body"]
+    @pytest.mark.asyncio
+    async def test_creates_review_on_first_publish(
+        self, review: MagicMock, repo: MagicMock, finding: MagicMock, review_id: uuid.UUID
+    ) -> None:
+        session = AsyncMock()
+        client = MagicMock()
 
-    def test_rate_limit_remaining_property_updated_after_call(self) -> None:
-        pub, _ = _publisher(rate_limit_remaining=80)
-        pub.publish([_finding()])
-        assert pub.rate_limit_remaining == 80
+        create_review_resp = _make_response(200, {"id": 9001})
+        create_comment_resp = _make_response(200, {"id": 1234})
 
-    def test_rate_limit_remaining_none_before_first_call(self) -> None:
-        pub, _ = _publisher(rate_limit_remaining=None)
-        assert pub.rate_limit_remaining is None
+        client.get = AsyncMock(return_value=_sha_ok_response())
+        client.post = AsyncMock(side_effect=[create_review_resp, create_comment_resp])
+        client.put = AsyncMock()
+        client.patch = AsyncMock()
 
-    def test_raises_rate_limit_exceeded_after_publish(self) -> None:
-        pub, _ = _publisher(rate_limit_remaining=5)
-        with pytest.raises(RateLimitExceededError, match="rate limit"):
-            pub.publish([_finding()])
+        await self._run(session, review, repo, finding, client)
+
+        # Should POST to reviews endpoint once
+        assert client.post.call_count == 2  # one review + one comment
+        first_call_url = client.post.call_args_list[0].args[0]
+        assert "/pulls/42/reviews" in first_call_url
+
+    @pytest.mark.asyncio
+    async def test_stores_github_review_id(self, review: MagicMock, repo: MagicMock, finding: MagicMock) -> None:
+        session = AsyncMock()
+        client = MagicMock()
+
+        client.get = AsyncMock(return_value=_sha_ok_response())
+        client.post = AsyncMock(
+            side_effect=[
+                _make_response(200, {"id": 9001}),
+                _make_response(200, {"id": 1234}),
+            ]
+        )
+        client.put = AsyncMock()
+        client.patch = AsyncMock()
+
+        await self._run(session, review, repo, finding, client)
+
+        assert review.github_review_id == 9001
+
+    @pytest.mark.asyncio
+    async def test_stores_comment_id_on_finding(self, review: MagicMock, repo: MagicMock, finding: MagicMock) -> None:
+        session = AsyncMock()
+        client = MagicMock()
+
+        client.get = AsyncMock(return_value=_sha_ok_response())
+        client.post = AsyncMock(
+            side_effect=[
+                _make_response(200, {"id": 9001}),
+                _make_response(200, {"id": 5678}),
+            ]
+        )
+        client.put = AsyncMock()
+        client.patch = AsyncMock()
+
+        await self._run(session, review, repo, finding, client)
+
+        assert finding.github_comment_id == 5678
+        assert finding.published is True
+
+    @pytest.mark.asyncio
+    async def test_persists_comment_id_map(self, review: MagicMock, repo: MagicMock, finding: MagicMock) -> None:
+        session = AsyncMock()
+        client = MagicMock()
+
+        client.get = AsyncMock(return_value=_sha_ok_response())
+        client.post = AsyncMock(
+            side_effect=[
+                _make_response(200, {"id": 9001}),
+                _make_response(200, {"id": 5678}),
+            ]
+        )
+        client.put = AsyncMock()
+        client.patch = AsyncMock()
+
+        await self._run(session, review, repo, finding, client)
+
+        expected_key = str(finding.id)
+        assert review.github_comment_ids[expected_key] == 5678
+
+    @pytest.mark.asyncio
+    async def test_suppressed_finding_not_published(self, review: MagicMock, repo: MagicMock) -> None:
+        session = AsyncMock()
+        client = MagicMock()
+
+        suppressed = _make_finding(publishability="suppress")
+        suppressed.review_id = review.id
+
+        create_review_resp = _make_response(200, {"id": 9001})
+        client.get = AsyncMock(return_value=_sha_ok_response())
+        client.post = AsyncMock(return_value=create_review_resp)
+        client.put = AsyncMock()
+        client.patch = AsyncMock()
+
+        session.execute = AsyncMock(
+            side_effect=[
+                _scalar_result(review),
+                _scalar_result(repo),
+                _scalars_result([suppressed]),
+            ]
+        )
+
+        with patch("kenjutsu.pipeline.publisher.httpx.AsyncClient") as mock_client_cls:
+            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=client)
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+            await publish_review(session, review.id, INSTALLATION_ID, "gh_token_test")
+
+        # Only the review POST, no comment POST
+        assert client.post.call_count == 1
+        assert suppressed.published is False
+
+    @pytest.mark.asyncio
+    async def test_sha_mismatch_aborts_publish(self, review: MagicMock, repo: MagicMock, finding: MagicMock) -> None:
+        session = AsyncMock()
+        client = MagicMock()
+
+        # GitHub says PR head is now a different SHA
+        client.get = AsyncMock(return_value=_sha_ok_response(head_sha="deadbeef"))
+        client.post = AsyncMock()
+        client.put = AsyncMock()
+
+        session.execute = AsyncMock(
+            side_effect=[
+                _scalar_result(review),
+                _scalar_result(repo),
+                _scalars_result([finding]),
+            ]
+        )
+
+        with patch("kenjutsu.pipeline.publisher.httpx.AsyncClient") as mock_client_cls:
+            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=client)
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+            with pytest.raises(ValueError, match="Head SHA mismatch"):
+                await publish_review(session, review.id, INSTALLATION_ID, "gh_token_test")
+
+        # No GitHub writes should have occurred
+        assert client.post.call_count == 0
+        assert client.put.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_flushes_after_review_create(self, review: MagicMock, repo: MagicMock, finding: MagicMock) -> None:
+        session = AsyncMock()
+        client = MagicMock()
+
+        client.get = AsyncMock(return_value=_sha_ok_response())
+        client.post = AsyncMock(
+            side_effect=[
+                _make_response(200, {"id": 9001}),
+                _make_response(200, {"id": 1234}),
+            ]
+        )
+        client.put = AsyncMock()
+        client.patch = AsyncMock()
+
+        await self._run(session, review, repo, finding, client)
+
+        # flush called at least once (after review create, after each comment create)
+        assert session.flush.call_count >= 1
+
+
+# ---------------------------------------------------------------------------
+# Tests: publish_review — retry (IDs already stored)
+# ---------------------------------------------------------------------------
+
+
+class TestPublishReviewRetry:
+    @pytest.mark.asyncio
+    async def test_updates_existing_review_on_retry(self) -> None:
+        review_id = uuid.uuid4()
+        finding_id = uuid.uuid4()
+
+        review = _make_review(review_id=review_id, github_review_id=9001)
+        repo = _make_repo()
+        finding = _make_finding(finding_id=finding_id, github_comment_id=5678)
+        finding.review_id = review_id
+
+        session = AsyncMock()
+        session.execute = AsyncMock(
+            side_effect=[
+                _scalar_result(review),
+                _scalar_result(repo),
+                _scalars_result([finding]),
+            ]
+        )
+
+        client = MagicMock()
+        update_review_resp = _make_response(200, {"id": 9001})
+        update_comment_resp = _make_response(200, {"id": 5678})
+        client.get = AsyncMock(return_value=_sha_ok_response())
+        client.put = AsyncMock(return_value=update_review_resp)
+        client.patch = AsyncMock(return_value=update_comment_resp)
+        client.post = AsyncMock()
+
+        with patch("kenjutsu.pipeline.publisher.httpx.AsyncClient") as mock_client_cls:
+            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=client)
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+            await publish_review(session, review_id, INSTALLATION_ID, "gh_token_test")
+
+        # Should PUT (update) the review, not POST
+        assert client.put.call_count == 1
+        put_url = client.put.call_args.args[0]
+        assert "/reviews/9001" in put_url
+
+        # Should PATCH (update) the comment, not POST
+        assert client.patch.call_count == 1
+        patch_url = client.patch.call_args.args[0]
+        assert "/pulls/comments/5678" in patch_url
+
+        # No new review or comment created
+        assert client.post.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_no_duplicate_comments_on_retry(self) -> None:
+        """Retrying must not create additional comments when existing ones succeed."""
+        review_id = uuid.uuid4()
+        finding_id = uuid.uuid4()
+
+        review = _make_review(
+            review_id=review_id,
+            github_review_id=9001,
+            github_comment_ids={str(finding_id): 5678},
+        )
+        repo = _make_repo()
+        finding = _make_finding(finding_id=finding_id, github_comment_id=5678)
+        finding.review_id = review_id
+
+        session = AsyncMock()
+        session.execute = AsyncMock(
+            side_effect=[
+                _scalar_result(review),
+                _scalar_result(repo),
+                _scalars_result([finding]),
+            ]
+        )
+
+        client = MagicMock()
+        client.get = AsyncMock(return_value=_sha_ok_response())
+        client.put = AsyncMock(return_value=_make_response(200, {"id": 9001}))
+        client.patch = AsyncMock(return_value=_make_response(200, {"id": 5678}))
+        client.post = AsyncMock()
+
+        with patch("kenjutsu.pipeline.publisher.httpx.AsyncClient") as mock_client_cls:
+            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=client)
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+            await publish_review(session, review_id, INSTALLATION_ID, "gh_token_test")
+
+        assert client.post.call_count == 0
+
+
+# ---------------------------------------------------------------------------
+# Tests: publish_review — 404 recovery
+# ---------------------------------------------------------------------------
+
+
+class TestPublishReviewRecovery:
+    @pytest.mark.asyncio
+    async def test_recreates_review_after_404(self) -> None:
+        """If GitHub review is deleted (404 on PUT), a new one is created."""
+        review_id = uuid.uuid4()
+        finding_id = uuid.uuid4()
+
+        review = _make_review(review_id=review_id, github_review_id=9001)
+        repo = _make_repo()
+        finding = _make_finding(finding_id=finding_id)
+        finding.review_id = review_id
+
+        session = AsyncMock()
+        session.execute = AsyncMock(
+            side_effect=[
+                _scalar_result(review),
+                _scalar_result(repo),
+                _scalars_result([finding]),
+            ]
+        )
+
+        client = MagicMock()
+        client.get = AsyncMock(return_value=_sha_ok_response())
+        # PUT returns 404 (review deleted)
+        not_found_resp = _make_response(404)
+        not_found_resp.raise_for_status.return_value = None  # 404 handled gracefully
+        client.put = AsyncMock(return_value=not_found_resp)
+        # POST creates a fresh review and comment
+        client.post = AsyncMock(
+            side_effect=[
+                _make_response(200, {"id": 9999}),
+                _make_response(200, {"id": 1111}),
+            ]
+        )
+        client.patch = AsyncMock()
+
+        with patch("kenjutsu.pipeline.publisher.httpx.AsyncClient") as mock_client_cls:
+            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=client)
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+            await publish_review(session, review_id, INSTALLATION_ID, "gh_token_test")
+
+        # New review was created
+        assert review.github_review_id == 9999
+        # New comment was created (no PATCH since comment_id_map was cleared)
+        assert client.post.call_count == 2
+        assert client.patch.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_recreates_comment_after_404(self) -> None:
+        """If a comment is deleted (404 on PATCH), a new one is created."""
+        review_id = uuid.uuid4()
+        finding_id = uuid.uuid4()
+
+        review = _make_review(review_id=review_id, github_review_id=9001)
+        repo = _make_repo()
+        finding = _make_finding(finding_id=finding_id, github_comment_id=5678)
+        finding.review_id = review_id
+
+        session = AsyncMock()
+        session.execute = AsyncMock(
+            side_effect=[
+                _scalar_result(review),
+                _scalar_result(repo),
+                _scalars_result([finding]),
+            ]
+        )
+
+        client = MagicMock()
+        client.get = AsyncMock(return_value=_sha_ok_response())
+        client.put = AsyncMock(return_value=_make_response(200, {"id": 9001}))
+        # PATCH returns 404 (comment deleted)
+        not_found_resp = _make_response(404)
+        not_found_resp.raise_for_status.return_value = None
+        client.patch = AsyncMock(return_value=not_found_resp)
+        # POST creates a fresh comment
+        client.post = AsyncMock(return_value=_make_response(200, {"id": 2222}))
+
+        with patch("kenjutsu.pipeline.publisher.httpx.AsyncClient") as mock_client_cls:
+            mock_client_cls.return_value.__aenter__ = AsyncMock(return_value=client)
+            mock_client_cls.return_value.__aexit__ = AsyncMock(return_value=False)
+            await publish_review(session, review_id, INSTALLATION_ID, "gh_token_test")
+
+        # New comment created
+        assert finding.github_comment_id == 2222
+        assert finding.published is True
+
+    @pytest.mark.asyncio
+    async def test_raises_value_error_for_missing_review(self) -> None:
+        session = AsyncMock()
+        session.execute = AsyncMock(return_value=_scalar_result(None))
+
+        with pytest.raises(ValueError, match="not found"):
+            await publish_review(session, uuid.uuid4(), INSTALLATION_ID, "gh_token_test")
+
+    @pytest.mark.asyncio
+    async def test_raises_value_error_for_missing_repo(self) -> None:
+        review = _make_review()
+        session = AsyncMock()
+        session.execute = AsyncMock(
+            side_effect=[
+                _scalar_result(review),
+                _scalar_result(None),
+            ]
+        )
+
+        with pytest.raises(ValueError, match="not found"):
+            await publish_review(session, review.id, INSTALLATION_ID, "gh_token_test")
