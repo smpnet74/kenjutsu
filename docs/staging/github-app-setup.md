@@ -11,8 +11,36 @@ Keep it updated as credentials rotate or installations change.
 ## Prerequisites
 
 - GitHub account with admin access to the `smpnet74` organization (or personal account)
-- Webhook receiver URL for staging (e.g. `https://staging.kenjutsu.dev/webhook`)
 - Admin access to the `smpnet74/kenjutsu` repository (to write GitHub Environment secrets)
+- A Fly.io account with an organization (or personal account) — see Step 0 below
+
+---
+
+## Step 0 — Create the Fly.io Staging App
+
+The staging deployment targets [Fly.io](https://fly.io). Create the app before registering the
+GitHub App (you'll need the URL for the webhook).
+
+1. **If you don't have a Fly.io account:** sign up at https://fly.io and install the CLI:
+   ```bash
+   curl -L https://fly.io/install.sh | sh
+   fly auth login
+   ```
+
+2. **Create the staging app:**
+   ```bash
+   fly apps create kenjutsu-staging
+   ```
+   This gives you the URL: `https://kenjutsu-staging.fly.dev`
+
+3. **Generate a deploy token** (used by CI):
+   ```bash
+   fly tokens create deploy -a kenjutsu-staging
+   ```
+   Save this value — you'll need it in Step 4 as `FLY_API_TOKEN`.
+
+> **Note:** If `kenjutsu-staging` is taken, use a different name (e.g. `kenjutsu-stg`) and update
+> all references below accordingly.
 
 ---
 
@@ -28,7 +56,7 @@ Keep it updated as credentials rotate or installations change.
    |-------|-------|
    | **GitHub App name** | `kenjutsu-staging` |
    | **Homepage URL** | `https://github.com/smpnet74/kenjutsu` |
-   | **Webhook URL** | `https://staging.kenjutsu.dev/webhook` |
+   | **Webhook URL** | `https://kenjutsu-staging.fly.dev/webhook` |
    | **Webhook secret** | Generate with `openssl rand -hex 32` — save this value |
    | **Expire user authorization tokens** | Enabled |
    | **Request user authorization (OAuth) during installation** | Disabled |
@@ -74,13 +102,13 @@ Still on the app settings page, scroll to **Private keys**:
 
 ---
 
-## Step 4 — Store Secrets in GitHub Environment `staging`
+## Step 4 — Store Secrets and Variables in GitHub Environment `staging`
 
-The `staging` environment already exists in `smpnet74/kenjutsu`. Add these secrets via the
-GitHub UI (**Settings → Environments → staging → Add secret**) or via CLI:
+The `staging` environment already exists in `smpnet74/kenjutsu`. Add these secrets and variables
+via the GitHub UI (**Settings → Environments → staging → Add secret/variable**) or via CLI:
 
 ```bash
-# Replace placeholder values with actual credentials
+# --- GitHub App credentials (from Steps 1–3) ---
 
 gh secret set GITHUB_APP_ID \
   --env staging \
@@ -96,15 +124,37 @@ gh secret set GITHUB_WEBHOOK_SECRET \
   --env staging \
   --repo smpnet74/kenjutsu \
   --body "YOUR_WEBHOOK_SECRET"
+
+# --- Fly.io deployment credentials (from Step 0) ---
+
+gh secret set FLY_API_TOKEN \
+  --env staging \
+  --repo smpnet74/kenjutsu \
+  --body "YOUR_FLY_DEPLOY_TOKEN"
+
+# --- Environment variables (not secrets) ---
+
+gh variable set FLY_APP_NAME \
+  --env staging \
+  --repo smpnet74/kenjutsu \
+  --body "kenjutsu-staging"
+
+gh variable set STAGING_URL \
+  --env staging \
+  --repo smpnet74/kenjutsu \
+  --body "https://kenjutsu-staging.fly.dev"
 ```
 
 Required secrets summary:
 
-| Secret name | Description |
-|------------|-------------|
-| `GITHUB_APP_ID` | Numeric App ID from Step 2 |
-| `GITHUB_APP_PRIVATE_KEY` | Full PEM content from Step 3 |
-| `GITHUB_WEBHOOK_SECRET` | Value generated in Step 1 |
+| Name | Type | Description |
+|------|------|-------------|
+| `GITHUB_APP_ID` | secret | Numeric App ID from Step 2 |
+| `GITHUB_APP_PRIVATE_KEY` | secret | Full PEM content from Step 3 |
+| `GITHUB_WEBHOOK_SECRET` | secret | Value generated in Step 1 |
+| `FLY_API_TOKEN` | secret | Fly.io deploy token from Step 0 |
+| `FLY_APP_NAME` | variable | Fly.io app name (e.g. `kenjutsu-staging`) |
+| `STAGING_URL` | variable | Full staging URL (e.g. `https://kenjutsu-staging.fly.dev`) |
 
 ---
 
@@ -139,7 +189,7 @@ Once the staging service is deployed (see DEM-166):
 | App name | `kenjutsu-staging` |
 | App ID | _(fill in after Step 2)_ |
 | Installation ID (smpnet74) | _(fill in after Step 5)_ |
-| Webhook URL | `https://staging.kenjutsu.dev/webhook` |
+| Webhook URL | `https://kenjutsu-staging.fly.dev/webhook` |
 | Registered by | _(fill in)_ |
 | Registration date | _(fill in)_ |
 
@@ -148,7 +198,7 @@ Once the staging service is deployed (see DEM-166):
 ## Notes
 
 - The **production** GitHub App (`kenjutsu-production`) will be registered separately in Phase 5.
-  It uses a different App ID, private key, and webhook URL (`https://kenjutsu.dev/webhook`).
+  It uses a different App ID, private key, and webhook URL (production domain TBD).
 - Private keys do not expire but should be rotated if compromised. Generate a new one, update the
   secret, redeploy, then delete the old key from the app settings page.
 - If the webhook secret needs rotation: update `GITHUB_WEBHOOK_SECRET` in the environment secrets,
